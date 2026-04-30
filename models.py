@@ -30,6 +30,11 @@ class LeadStatus(str, Enum):
     DISMISSED = "dismissed"
 
 
+class UserRole(str, Enum):
+    USER = "user"
+    ADMIN = "admin"
+
+
 class Company:
     def __init__(
         self,
@@ -438,3 +443,77 @@ class Lead:
 
     def __str__(self) -> str:
         return f"Lead {self.lead_id} [{self.status.value}]"
+
+
+class User:
+    def __init__(
+        self,
+        email: str,
+        password_hash: str,
+        display_name: str,
+        role: UserRole = UserRole.USER,
+        user_id: Optional[str] = None,
+    ) -> None:
+        self.user_id = user_id or str(uuid4())
+        self.email = email
+        self.password_hash = password_hash
+        self.display_name = display_name
+        self.role = role
+        self.created_at = datetime.now(timezone.utc)
+        self.updated_at = self.created_at
+
+    @property
+    def email(self) -> str:
+        return self._email
+
+    @email.setter
+    def email(self, value: str) -> None:
+        cleaned = value.strip().lower()
+        if "@" not in cleaned or "." not in cleaned.split("@")[-1]:
+            raise ValueError("email must be valid")
+        self._email = cleaned
+
+    @property
+    def password_hash(self) -> str:
+        return self._password_hash
+
+    @password_hash.setter
+    def password_hash(self, value: str) -> None:
+        cleaned = value.strip()
+        if len(cleaned) < 20:
+            raise ValueError("password_hash appears invalid")
+        self._password_hash = cleaned
+
+    @property
+    def display_name(self) -> str:
+        return self._display_name
+
+    @display_name.setter
+    def display_name(self, value: str) -> None:
+        cleaned = value.strip()
+        if len(cleaned) < 2:
+            raise ValueError("display_name must have at least 2 characters")
+        self._display_name = cleaned
+
+    @property
+    def role(self) -> UserRole:
+        return self._role
+
+    @role.setter
+    def role(self, value: UserRole) -> None:
+        if not isinstance(value, UserRole):
+            raise ValueError("role must be a UserRole enum value")
+        self._role = value
+
+    def touch(self) -> None:
+        self.updated_at = datetime.now(timezone.utc)
+
+    def __repr__(self) -> str:
+        return (
+            "User("
+            f"user_id={self.user_id!r}, email={self.email!r}, "
+            f"display_name={self.display_name!r}, role={self.role.value!r})"
+        )
+
+    def __str__(self) -> str:
+        return f"{self.display_name} <{self.email}>"

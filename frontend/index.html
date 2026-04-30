@@ -4,87 +4,125 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Linkedln Scraper</title>
-    <link rel="stylesheet" href="./styles.css" />
+    <link rel="icon" type="image/svg+xml" href="/frontend/favicon.svg" />
+    <link rel="stylesheet" href="/frontend/styles.css" />
   </head>
   <body>
-    <nav class="navbar">
-      <div class="brand-block">
+    <section id="auth-screen" class="auth-screen">
+      <div class="auth-card">
         <div class="brand-row">
           <span class="brand-logo" aria-hidden="true">in</span>
-          <p class="brand">Linkedln Scraper</p>
+          <p class="brand">Linkedln Scraper <span class="beta-pill">BETA</span></p>
         </div>
-        <p class="version">Version 1.0</p>
-      </div>
-      <button
-        id="theme-toggle"
-        class="theme-toggle"
-        type="button"
-        aria-label="Toggle dark mode"
-        title="Toggle dark mode"
-      >
-        <span class="toggle-icon" aria-hidden="true">◐</span>
-      </button>
-    </nav>
-    <main class="content">
-      <div class="search-area">
-        <p class="search-label">Company Discovery</p>
-        <div class="search-shell">
-        <span class="search-icon" aria-hidden="true">&#128269;</span>
-        <input
-          id="lead-search"
-          class="lead-search"
-          type="search"
-          placeholder="Find valuable leads or employers now..."
-          aria-label="Search valuable leads or employers"
-        />
-        </div>
-        <ul id="suggestions" class="suggestions" aria-live="polite"></ul>
-        <section id="company-card" class="company-card hidden" aria-live="polite">
-          <header class="company-card-header">
-            <img id="selected-company-logo" class="selected-company-logo" alt="Company logo" />
-            <div class="selected-company-meta">
-              <p id="selected-company-name" class="selected-company-name"></p>
-              <p id="selected-company-details" class="selected-company-details"></p>
-            </div>
-          </header>
+        <p class="auth-title">Create account or sign in to unlock the platform</p>
 
-          <div class="employee-tabs">
-            <button type="button" class="employee-tab active">People</button>
-            <button type="button" class="employee-tab">Valuable Leads</button>
-            <button type="button" class="employee-tab">Addresses</button>
+        <div class="auth-tabs">
+          <button id="show-register" type="button" class="auth-tab active">Create account</button>
+          <button id="show-login" type="button" class="auth-tab">Sign in</button>
+        </div>
+
+        <form id="register-form" class="auth-form">
+          <input id="register-name" type="text" placeholder="Display name" required />
+          <input id="register-email" type="email" placeholder="Email" required />
+          <input id="register-password" type="password" placeholder="Password (min 8 chars)" required />
+          <button type="submit" class="auth-submit">Create account</button>
+        </form>
+
+        <form id="login-form" class="auth-form hidden">
+          <input id="login-email" type="email" placeholder="Email" required />
+          <input id="login-password" type="password" placeholder="Password" required />
+          <button type="submit" class="auth-submit">Sign in</button>
+        </form>
+
+        <p id="auth-message" class="auth-message"></p>
+      </div>
+    </section>
+
+    <div id="app-shell" class="hidden">
+      <nav class="navbar">
+        <div class="brand-block">
+          <div class="brand-row">
+            <span class="brand-logo" aria-hidden="true">in</span>
+            <p class="brand">Linkedln Scraper <span class="beta-pill">BETA</span></p>
           </div>
-
-          <ul id="employee-list" class="employee-list"></ul>
-
-          <article id="employee-card" class="employee-card hidden" aria-live="polite">
-            <header class="employee-card-header">
-              <img id="employee-card-company-logo" class="employee-card-company-logo" alt="Company logo" />
-              <p id="employee-card-company-name" class="employee-card-company-name"></p>
+          <p class="version">Open-source build by an aspiring AI engineer.</p>
+        </div>
+        <div class="nav-actions">
+          <button id="logout-button" class="logout-button" type="button">Logout</button>
+          <button
+            id="theme-toggle"
+            class="theme-toggle"
+            type="button"
+            aria-label="Toggle dark mode"
+            title="Toggle dark mode"
+          >
+            <span class="toggle-icon" aria-hidden="true">◐</span>
+          </button>
+        </div>
+      </nav>
+      <main class="content">
+        <div class="search-area">
+          <p class="search-label">Company Discovery</p>
+          <div class="search-shell">
+          <span class="search-icon search-business-icon" aria-hidden="true">in</span>
+          <input
+            id="lead-search"
+            class="lead-search"
+            type="search"
+            placeholder="Find valuable leads or employers now..."
+            aria-label="Search valuable leads or employers"
+          />
+          </div>
+          <ul id="suggestions" class="suggestions" aria-live="polite"></ul>
+          <section id="company-card" class="company-card hidden" aria-live="polite">
+            <header class="company-card-header">
+              <img id="selected-company-logo" class="selected-company-logo" alt="Company logo" />
+              <div class="selected-company-meta">
+                <p id="selected-company-name" class="selected-company-name"></p>
+                <p id="selected-company-details" class="selected-company-details"></p>
+              </div>
             </header>
-            <div class="employee-card-grid">
-              <p class="employee-field-label">First Name</p>
-              <p id="employee-card-first-name" class="employee-field-value"></p>
 
-              <p class="employee-field-label">Last Name</p>
-              <p id="employee-card-last-name" class="employee-field-value"></p>
-
-              <p class="employee-field-label">E-mail</p>
-              <p id="employee-card-email" class="employee-field-value employee-field-highlight"></p>
-
-              <p class="employee-field-label">Role</p>
-              <p id="employee-card-role" class="employee-field-value"></p>
-
-              <p class="employee-field-label">Company</p>
-              <p id="employee-card-company" class="employee-field-value employee-field-highlight"></p>
-
-              <p class="employee-field-label">Location</p>
-              <p id="employee-card-location" class="employee-field-value"></p>
+            <div class="employee-tabs">
+              <button type="button" class="employee-tab active" data-view="people">People</button>
+              <button type="button" class="employee-tab" data-view="valuable">Valuable Leads</button>
+              <button type="button" class="employee-tab" data-view="addresses">Adresses</button>
             </div>
-            <button id="favorite-button" type="button" class="favorite-button">Add to Favorites</button>
-          </article>
-        </section>
-      </div>
-    </main>
-    <script src="./app.js"></script>
+
+            <ul id="employee-list" class="employee-list"></ul>
+            <section id="valuable-leads-panel" class="valuable-leads-panel hidden"></section>
+            <section id="addresses-panel" class="addresses-panel hidden"></section>
+
+            <article id="employee-card" class="employee-card hidden" aria-live="polite">
+              <header class="employee-card-header">
+                <img id="employee-card-company-logo" class="employee-card-company-logo" alt="Company logo" />
+                <p id="employee-card-company-name" class="employee-card-company-name"></p>
+              </header>
+              <div class="employee-card-grid">
+                <p class="employee-field-label">First Name</p>
+                <p id="employee-card-first-name" class="employee-field-value"></p>
+
+                <p class="employee-field-label">Last Name</p>
+                <p id="employee-card-last-name" class="employee-field-value"></p>
+
+                <p class="employee-field-label">E-mail</p>
+                <p id="employee-card-email" class="employee-field-value employee-field-highlight"></p>
+
+                <p class="employee-field-label">Role</p>
+                <p id="employee-card-role" class="employee-field-value"></p>
+
+                <p class="employee-field-label">Company</p>
+                <p id="employee-card-company" class="employee-field-value employee-field-highlight"></p>
+
+                <p class="employee-field-label">Location</p>
+                <p id="employee-card-location" class="employee-field-value"></p>
+              </div>
+              <button id="favorite-button" type="button" class="favorite-button">Add to Favorites</button>
+            </article>
+          </section>
+        </div>
+      </main>
+    </div>
+    <script src="/frontend/app.js"></script>
   </body>
 </html>

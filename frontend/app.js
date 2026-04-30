@@ -1,4 +1,12 @@
 const input = document.getElementById("lead-search");
+const appShell = document.getElementById("app-shell");
+const authScreen = document.getElementById("auth-screen");
+const showRegisterButton = document.getElementById("show-register");
+const showLoginButton = document.getElementById("show-login");
+const registerForm = document.getElementById("register-form");
+const loginForm = document.getElementById("login-form");
+const authMessage = document.getElementById("auth-message");
+const logoutButton = document.getElementById("logout-button");
 const suggestions = document.getElementById("suggestions");
 const themeToggle = document.getElementById("theme-toggle");
 const companyCard = document.getElementById("company-card");
@@ -16,6 +24,9 @@ const employeeCardRole = document.getElementById("employee-card-role");
 const employeeCardCompany = document.getElementById("employee-card-company");
 const employeeCardLocation = document.getElementById("employee-card-location");
 const favoriteButton = document.getElementById("favorite-button");
+const employeeTabs = Array.from(document.querySelectorAll(".employee-tab"));
+const valuableLeadsPanel = document.getElementById("valuable-leads-panel");
+const addressesPanel = document.getElementById("addresses-panel");
 let activeController = null;
 let debounceTimer = null;
 let currentSuggestions = [];
@@ -23,6 +34,8 @@ let selectedCompanyKey = null;
 let selectedCompany = null;
 let currentEmployees = [];
 let selectedEmployee = null;
+let activeEmployeeView = "people";
+let companyInsights = { employees: [], email_terminations: [] };
 const THEME_STORAGE_KEY = "ui_theme_preference";
 const FAVORITES_STORAGE_KEY = "favorite_employees";
 const BRANDFETCH_CLIENT_ID = "1id6iCSRkbc4cqe2MBu";
@@ -40,6 +53,48 @@ const FALLBACK_COMPANIES = [
   { name: "Google", domain: "google.com", country: "US", source: "fallback", logo_url: "" },
   { name: "Stripe", domain: "stripe.com", country: "US", source: "fallback", logo_url: "" },
 ];
+
+function showAuthScreen() {
+  authScreen?.classList.remove("hidden");
+  appShell?.classList.add("hidden");
+}
+
+function showAppShell() {
+  authScreen?.classList.add("hidden");
+  appShell?.classList.remove("hidden");
+}
+
+function setAuthTab(mode) {
+  const registerMode = mode === "register";
+  showRegisterButton?.classList.toggle("active", registerMode);
+  showLoginButton?.classList.toggle("active", !registerMode);
+  registerForm?.classList.toggle("hidden", !registerMode);
+  loginForm?.classList.toggle("hidden", registerMode);
+  if (authMessage) authMessage.textContent = "";
+}
+
+async function authRequest(url, payload) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload || {}),
+  });
+  const json = await response.json().catch(() => ({}));
+  return { ok: response.ok, status: response.status, data: json };
+}
+
+async function resolveSession() {
+  try {
+    const response = await fetch("/api/auth/me");
+    if (!response.ok) {
+      showAuthScreen();
+      return;
+    }
+    showAppShell();
+  } catch {
+    showAuthScreen();
+  }
+}
 
 function applyTheme(theme) {
   if (theme === "dark") {
@@ -147,6 +202,17 @@ function employeeMocks(companyName) {
   ];
 }
 
+async function fetchCompanyInsights(company) {
+  const query = new URLSearchParams({
+    name: company.name || "",
+    domain: company.domain || "",
+    country: company.country || "",
+  });
+  const response = await fetch(`/api/company-insights?${query.toString()}`);
+  if (!response.ok) throw new Error(`Insights failed with ${response.status}`);
+  return response.json();
+}
+
 function favoritesMap() {
   try {
     const parsed = JSON.parse(localStorage.getItem(FAVORITES_STORAGE_KEY) || "{}");
@@ -171,6 +237,24 @@ function saveFavorite(employee, company) {
     savedAt: new Date().toISOString(),
   };
   localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(map));
+}
+
+async function saveFavoriteToServer(employee, company) {
+  const response = await fetch("/api/user/saved-employers", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      company_name: company.name,
+      company_domain: buildCompanyDomain(company),
+      company_logo: company.logo_url || brandfetchLogoUrl(company.domain),
+      employer_name: `${employee.firstName} ${employee.lastName}`,
+      employer_role: employee.role,
+      employer_email: employee.email,
+      employer_location: employee.location,
+      lead_score: employee.valuableLeadScore || 0,
+    }),
+  });
+  return response.ok;
 }
 
 function isFavorite(employeeId) {
@@ -208,7 +292,22 @@ function renderEmployeeCard(employee, company) {
 
 function renderEmployeeRows(company) {
   employeeList.innerHTML = "";
-  currentEmployees = employeeMocks(company.name);
+  currentEmployees = (companyInsights.employees || []).map((employee) => ({
+    id: employee.id,
+    firstName: employee.first_name,
+    lastName: employee.last_name,
+    role: employee.role,
+    email: employee.email,
+    location: employee.location,
+    departmentRisePercent: employee.department_rise_percent,
+    interviewsHeldRecently: employee.interviews_held_recently,
+    contactLikelihoodPercent: employee.contact_likelihood_percent,
+    valuableLeadScore: employee.valuable_lead_score,
+    outreachWindow: employee.outreach_window,
+  }));
+  if (currentEmployees.length === 0) {
+    currentEmployees = employeeMocks(company.name);
+  }
   currentEmployees.forEach((employee, index) => {
     const row = document.createElement("li");
     row.className = "employee-row";
@@ -224,11 +323,109 @@ function renderEmployeeRows(company) {
   });
 }
 
+function buildValuableLeadInsights(company) {
+  return currentEmployees.map((employee, index) => {
+    const deptRise = employee.departmentRisePercent ?? 8 + index * 3;
+    const interviews = employee.interviewsHeldRecently ?? 3 + index;
+    const contactChance = employee.contactLikelihoodPercent ?? 58 + index * 7;
+    const score = employee.valuableLeadScore ?? Math.min(95, 64 + index * 6);
+    const outreachWindow = employee.outreachWindow ?? (index % 2 === 0 ? "Best in next 7 days" : "Strong this month");
+    return {
+      employee,
+      deptRise,
+      interviews,
+      contactChance,
+      score,
+      outreachWindow,
+      recentTrigger: `${company.name} department growth +${deptRise}% in last quarter`,
+    };
+  });
+}
+
+function renderValuableLeads(company) {
+  const insights = buildValuableLeadInsights(company);
+  valuableLeadsPanel.innerHTML = "";
+  insights.forEach((item) => {
+    const card = document.createElement("article");
+    card.className = "lead-insight-card";
+    card.innerHTML = `
+      <div class="lead-insight-header">
+        <div>
+          <p class="lead-person">${item.employee.firstName} ${item.employee.lastName}</p>
+          <p class="lead-role">${item.employee.role}</p>
+        </div>
+        <span class="lead-score">Lead score ${item.score}/100</span>
+      </div>
+      <div class="lead-metrics">
+        <div class="lead-metric">
+          <p class="lead-metric-label">Department rising</p>
+          <p class="lead-metric-value">+${item.deptRise}%</p>
+        </div>
+        <div class="lead-metric">
+          <p class="lead-metric-label">Recent interviews</p>
+          <p class="lead-metric-value">${item.interviews} held</p>
+        </div>
+        <div class="lead-metric">
+          <p class="lead-metric-label">Contact likelihood</p>
+          <p class="lead-metric-value">${item.contactChance}%</p>
+        </div>
+        <div class="lead-metric">
+          <p class="lead-metric-label">Outreach window</p>
+          <p class="lead-metric-value">${item.outreachWindow}</p>
+        </div>
+      </div>
+      <p class="lead-role">${item.recentTrigger}</p>
+    `;
+    valuableLeadsPanel.appendChild(card);
+  });
+}
+
+function renderAddresses(company) {
+  addressesPanel.innerHTML = "";
+  const domain = buildCompanyDomain(company);
+  const rows = [
+    { title: "Hiring mailbox", value: `careers@${domain}` },
+    { title: "Partnerships mailbox", value: `partnerships@${domain}` },
+    { title: "Talent outreach", value: `talent@${domain}` },
+    { title: "Main domain", value: domain },
+  ];
+  const terminations = (companyInsights.email_terminations || []).map((item) => ({
+    title: "E-mail termination",
+    value: item,
+  }));
+  const mergedRows = [...rows, ...terminations];
+  mergedRows.forEach((row) => {
+    const item = document.createElement("article");
+    item.className = "address-row";
+    item.innerHTML = `
+      <p class="address-title">${row.title}</p>
+      <p class="address-value">${row.value}</p>
+    `;
+    addressesPanel.appendChild(item);
+  });
+}
+
+function setEmployeeView(view) {
+  activeEmployeeView = view;
+  employeeTabs.forEach((tab) => {
+    tab.classList.toggle("active", tab.dataset.view === view);
+  });
+
+  employeeList.classList.toggle("hidden", view !== "people");
+  valuableLeadsPanel.classList.toggle("hidden", view !== "valuable");
+  addressesPanel.classList.toggle("hidden", view !== "addresses");
+  employeeCard.classList.toggle("hidden", view !== "people" || !selectedEmployee);
+
+  if (!selectedCompany) return;
+  if (view === "valuable") renderValuableLeads(selectedCompany);
+  if (view === "addresses") renderAddresses(selectedCompany);
+}
+
 function companyKey(company) {
   return `${company.name}|${company.domain || ""}`;
 }
 
-function toggleCompanyCard(company) {
+async function toggleCompanyCard(company) {
   const key = companyKey(company);
   if (selectedCompanyKey === key) {
     selectedCompanyKey = null;
@@ -244,7 +441,15 @@ function toggleCompanyCard(company) {
   selectedCompanyLogo.alt = `${company.name} logo`;
   selectedCompanyName.textContent = company.name;
   selectedCompanyDetails.textContent = [company.domain, company.country, company.source].filter(Boolean).join(" • ");
+  try {
+    companyInsights = await fetchCompanyInsights(company);
+  } catch {
+    companyInsights = { employees: [], email_terminations: [] };
+  }
   renderEmployeeRows(company);
+  renderValuableLeads(company);
+  renderAddresses(company);
+  setEmployeeView(activeEmployeeView);
   employeeCard.classList.add("hidden");
   companyCard.classList.remove("hidden");
 }
@@ -302,20 +507,77 @@ suggestions.addEventListener("click", (event) => {
   const index = Number(row.dataset.index);
   const company = currentSuggestions[index];
   if (!company) return;
-  toggleCompanyCard(company);
+  void toggleCompanyCard(company);
 });
 employeeList.addEventListener("click", (event) => {
   const row = event.target.closest(".employee-row");
   if (!row || !selectedCompany) return;
+  if (activeEmployeeView !== "people") return;
   const index = Number(row.dataset.index);
   const employee = currentEmployees[index];
   if (!employee) return;
   renderEmployeeCard(employee, selectedCompany);
 });
-favoriteButton?.addEventListener("click", () => {
+employeeTabs.forEach((tab) => {
+  tab.addEventListener("click", () => {
+    const view = tab.dataset.view || "people";
+    setEmployeeView(view);
+  });
+});
+favoriteButton?.addEventListener("click", async () => {
   if (!selectedEmployee || !selectedCompany) return;
-  saveFavorite(selectedEmployee, selectedCompany);
+  let savedToServer = false;
+  try {
+    savedToServer = await saveFavoriteToServer(selectedEmployee, selectedCompany);
+  } catch {
+    savedToServer = false;
+  }
+  if (!savedToServer) {
+    // Fallback for users not logged in yet.
+    saveFavorite(selectedEmployee, selectedCompany);
+  }
   updateFavoriteButton(selectedEmployee);
 });
 themeToggle?.addEventListener("click", toggleTheme);
+showRegisterButton?.addEventListener("click", () => setAuthTab("register"));
+showLoginButton?.addEventListener("click", () => setAuthTab("login"));
+registerForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const displayName = document.getElementById("register-name")?.value?.trim() || "";
+  const email = document.getElementById("register-email")?.value?.trim() || "";
+  const password = document.getElementById("register-password")?.value || "";
+  const registerRes = await authRequest("/api/auth/register", {
+    display_name: displayName,
+    email,
+    password,
+  });
+  if (!registerRes.ok) {
+    if (authMessage) authMessage.textContent = registerRes.data?.error || "Registration failed.";
+    return;
+  }
+  const loginRes = await authRequest("/api/auth/login", { email, password });
+  if (!loginRes.ok) {
+    if (authMessage) authMessage.textContent = "Account created, but sign-in failed.";
+    return;
+  }
+  showAppShell();
+});
+loginForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const email = document.getElementById("login-email")?.value?.trim() || "";
+  const password = document.getElementById("login-password")?.value || "";
+  const loginRes = await authRequest("/api/auth/login", { email, password });
+  if (!loginRes.ok) {
+    if (authMessage) authMessage.textContent = loginRes.data?.error || "Sign in failed.";
+    return;
+  }
+  showAppShell();
+});
+logoutButton?.addEventListener("click", async () => {
+  await authRequest("/api/auth/logout", {});
+  showAuthScreen();
+});
 applyTheme(getInitialTheme());
+setAuthTab("register");
+showAuthScreen();
+void resolveSession();

@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Iterator, List, Optional
 
-from models import Company, CompanySize, ContactChannel, Employee, Lead, LeadStatus
+from models import Company, CompanySize, ContactChannel, Employee, Lead, LeadStatus, User, UserRole
 
 
 class Repository:
@@ -72,8 +72,42 @@ class Repository:
                     FOREIGN KEY (employee_id) REFERENCES employees(id)
                 );
 
+                CREATE TABLE IF NOT EXISTS users (
+                    id TEXT PRIMARY KEY,
+                    email TEXT NOT NULL UNIQUE,
+                    password_hash TEXT NOT NULL,
+                    display_name TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS user_sessions (
+                    session_id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    FOREIGN KEY (user_id) REFERENCES users(id)
+                );
+
+                CREATE TABLE IF NOT EXISTS user_saved_employers (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    company_name TEXT NOT NULL,
+                    company_domain TEXT,
+                    company_logo TEXT,
+                    employer_name TEXT NOT NULL,
+                    employer_role TEXT NOT NULL,
+                    employer_email TEXT,
+                    employer_location TEXT,
+                    lead_score REAL NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (user_id) REFERENCES users(id)
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_employees_company ON employees(company_id);
                 CREATE INDEX IF NOT EXISTS idx_leads_company_status ON leads(company_id, status);
+                CREATE INDEX IF NOT EXISTS idx_saved_employers_user ON user_saved_employers(user_id, created_at DESC);
                 """
             )
             self._ensure_department_productivity_column(conn)
@@ -205,6 +239,121 @@ class Repository:
                 (status.value, notes, now, lead_id),
             )
 
+    def create_user(self, user: User) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO users (
+                    id, email, password_hash, display_name, role, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    user.user_id,
+                    user.email,
+                    user.password_hash,
+                    user.display_name,
+                    user.role.value,
+                    user.created_at.isoformat(),
+                    user.updated_at.isoformat(),
+                ),
+            )
+
+    def get_user_by_email(self, email: str) -> Optional[User]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM users WHERE email = ?",
+                (email.strip().lower(),),
+            ).fetchone()
+        if not row:
+            return None
+        return self._row_to_user(row)
+
+    def create_session(self, session_id: str, user_id: str, expires_at_iso: str) -> None:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO user_sessions (session_id, user_id, created_at, expires_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (session_id, user_id, now_iso, expires_at_iso),
+            )
+
+    def delete_session(self, session_id: str) -> None:
+        with self._connect() as conn:
+            conn.execute("DELETE FROM user_sessions WHERE session_id = ?", (session_id,))
+
+    def get_user_by_session(self, session_id: str) -> Optional[User]:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT u.* FROM user_sessions s
+                INNER JOIN users u ON u.id = s.user_id
+                WHERE s.session_id = ? AND s.expires_at > ?
+                """,
+                (session_id, datetime.now(timezone.utc).isoformat()),
+            ).fetchone()
+        if not row:
+            return None
+        return self._row_to_user(row)
+
+    def save_valuable_employer_for_user(
+        self,
+        user_id: str,
+        company_name: str,
+        company_domain: Optional[str],
+        company_logo: Optional[str],
+        employer_name: str,
+        employer_role: str,
+        employer_email: Optional[str],
+        employer_location: Optional[str],
+        lead_score: float,
+    ) -> None:
+        entity_id = f"{user_id}:{company_name}:{employer_name}:{employer_role}".lower()
+        now_iso = datetime.now(timezone.utc).isoformat()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO user_saved_employers (
+                    id, user_id, company_name, company_domain, company_logo,
+                    employer_name, employer_role, employer_email, employer_location,
+                    lead_score, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    company_logo = COALESCE(excluded.company_logo, user_saved_employers.company_logo),
+                    employer_email = COALESCE(excluded.employer_email, user_saved_employers.employer_email),
+                    employer_location = COALESCE(excluded.employer_location, user_saved_employers.employer_location),
+                    lead_score = excluded.lead_score
+                """,
+                (
+                    entity_id,
+                    user_id,
+                    company_name,
+                    company_domain,
+                    company_logo,
+                    employer_name,
+                    employer_role,
+                    employer_email,
+                    employer_location,
+                    round(float(lead_score), 2),
+                    now_iso,
+                ),
+            )
+
+    def list_saved_employers_for_user(self, user_id: str) -> List[dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT company_name, company_domain, company_logo, employer_name, employer_role,
+                       employer_email, employer_location, lead_score, created_at
+                FROM user_saved_employers
+                WHERE user_id = ?
+                ORDER BY created_at DESC
+                """,
+                (user_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def _row_to_company(self, row: sqlite3.Row) -> Company:
         company = Company(
             company_id=row["id"],
@@ -239,4 +388,16 @@ class Repository:
         employee.created_at = datetime.fromisoformat(row["created_at"])
         employee.updated_at = datetime.fromisoformat(row["updated_at"])
         return employee
+
+    def _row_to_user(self, row: sqlite3.Row) -> User:
+        user = User(
+            user_id=row["id"],
+            email=row["email"],
+            password_hash=row["password_hash"],
+            display_name=row["display_name"],
+            role=UserRole(row["role"]),
+        )
+        user.created_at = datetime.fromisoformat(row["created_at"])
+        user.updated_at = datetime.fromisoformat(row["updated_at"])
+        return user
 
