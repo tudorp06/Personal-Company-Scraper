@@ -344,7 +344,7 @@ class Repository:
         with self._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT company_name, company_domain, company_logo, employer_name, employer_role,
+                SELECT id, company_name, company_domain, company_logo, employer_name, employer_role,
                        employer_email, employer_location, lead_score, created_at
                 FROM user_saved_employers
                 WHERE user_id = ?
@@ -353,6 +353,39 @@ class Repository:
                 (user_id,),
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def clear_saved_employers_for_user(self, user_id: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "DELETE FROM user_saved_employers WHERE user_id = ?",
+                (user_id,),
+            )
+
+    def delete_saved_employer_for_user(
+        self,
+        user_id: str,
+        company_name: str,
+        employer_name: str,
+        employer_role: str,
+    ) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                DELETE FROM user_saved_employers
+                WHERE user_id = ? AND company_name = ? AND employer_name = ? AND employer_role = ?
+                """,
+                (user_id, company_name, employer_name, employer_role),
+            )
+
+    def delete_saved_employer_by_id_for_user(self, user_id: str, saved_employer_id: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                DELETE FROM user_saved_employers
+                WHERE user_id = ? AND id = ?
+                """,
+                (user_id, saved_employer_id),
+            )
 
     def _row_to_company(self, row: sqlite3.Row) -> Company:
         company = Company(

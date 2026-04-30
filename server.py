@@ -73,6 +73,21 @@ class AppHandler(SimpleHTTPRequestHandler):
             return self._handle_save_employer()
         self.send_error(HTTPStatus.NOT_FOUND, "Not Found")
 
+    def do_DELETE(self) -> None:
+        parsed = urlparse(self.path)
+        if parsed.path == "/api/user/saved-employers":
+            params = parse_qs(parsed.query)
+            saved_employer_id = params.get("id", [""])[0].strip()
+            if saved_employer_id:
+                return self._handle_delete_saved_employer_by_id(saved_employer_id)
+            company_name = params.get("company_name", [""])[0].strip()
+            employer_name = params.get("employer_name", [""])[0].strip()
+            employer_role = params.get("employer_role", [""])[0].strip()
+            if company_name and employer_name and employer_role:
+                return self._handle_delete_saved_employer(company_name, employer_name, employer_role)
+            return self._handle_clear_saved_employers()
+        self.send_error(HTTPStatus.NOT_FOUND, "Not Found")
+
     def _handle_company_search(self, raw_query: str) -> None:
         params = parse_qs(raw_query)
         query = params.get("q", [""])[0]
@@ -242,6 +257,32 @@ class AppHandler(SimpleHTTPRequestHandler):
             return self._send_status_json(HTTPStatus.UNAUTHORIZED, {"error": "not authenticated"})
         return self._send_json({"items": repository.list_saved_employers_for_user(user.user_id)})
 
+    def _handle_clear_saved_employers(self) -> None:
+        user = self._current_user()
+        if not user:
+            return self._send_status_json(HTTPStatus.UNAUTHORIZED, {"error": "not authenticated"})
+        repository.clear_saved_employers_for_user(user.user_id)
+        return self._send_json({"ok": True})
+
+    def _handle_delete_saved_employer(self, company_name: str, employer_name: str, employer_role: str) -> None:
+        user = self._current_user()
+        if not user:
+            return self._send_status_json(HTTPStatus.UNAUTHORIZED, {"error": "not authenticated"})
+        repository.delete_saved_employer_for_user(
+            user.user_id,
+            company_name=company_name,
+            employer_name=employer_name,
+            employer_role=employer_role,
+        )
+        return self._send_json({"ok": True})
+
+    def _handle_delete_saved_employer_by_id(self, saved_employer_id: str) -> None:
+        user = self._current_user()
+        if not user:
+            return self._send_status_json(HTTPStatus.UNAUTHORIZED, {"error": "not authenticated"})
+        repository.delete_saved_employer_by_id_for_user(user.user_id, saved_employer_id=saved_employer_id)
+        return self._send_json({"ok": True})
+
 
 def _build_company_insights(name: str, domain: str, country: str) -> dict:
     company_slug = "".join(ch for ch in name.lower() if ch.isalnum()) or "company"
@@ -249,31 +290,222 @@ def _build_company_insights(name: str, domain: str, country: str) -> dict:
     digest = sha256(f"{name}|{domain_base}|{country}".encode("utf-8")).hexdigest()
 
     ro_context = country == "RO" or any(k in name.lower() for k in ("arobs", "fortech", "uipath", "bitdefender"))
+    roles_pool = [
+        "Ecosystem Partnerships Specialist",
+        "Developer Relations Engineer",
+        "Applied Research Engineer",
+        "Platform Integration Engineer",
+        "Product Operations Specialist",
+        "Hardware Validation Engineer",
+        "Cloud Solutions Architect",
+        "Strategic Programs Specialist",
+        "Solutions Consultant",
+        "Customer Success Engineer",
+    ]
+    interests_map = {
+        "nvidia": "3D-printing, thermal management, and simulation startups that improve GPU manufacturing and datacenter performance",
+        "amd": "EDA verification, advanced packaging, and AI compiler startups for chip design and deployment",
+        "qualcomm": "edge AI, automotive connectivity, and low-power IoT startups for on-device intelligence",
+        "uber": "in-vehicle displays, fleet telematics, and routing optimization startups for mobility operations",
+        "google": "developer infrastructure, AI orchestration, and cloud cost observability startups",
+        "alphabet": "moonshot-ready startups in robotics, autonomous systems, and scalable AI infrastructure",
+        "meta": "creator monetization, AR/VR interaction, and recommendation-quality startups",
+        "amazon": "warehouse robotics, supply-chain visibility, and seller automation startups",
+        "microsoft": "enterprise copilots, identity-security, and workflow automation startups",
+        "netflix": "streaming QoE analytics, content localization tooling, and ad-tech measurement startups",
+        "apple": "device-side AI, battery efficiency, and human-interface startups for premium hardware ecosystems",
+        "logitech": "hybrid-work peripherals, low-latency collaboration, and creator hardware software startups",
+        "adobe": "generative design, marketing personalization, and creative workflow automation startups",
+        "salesforce": "CRM intelligence, RevOps automation, and customer data unification startups",
+        "oracle": "database performance, enterprise integration, and regulated-cloud tooling startups",
+        "sap": "enterprise process mining and supply-chain planning startups",
+        "tesla": "battery lifecycle analytics, factory robotics, and embedded autonomy tooling startups",
+        "spotify": "music recommendation tuning, creator growth tooling, and audio ad-tech startups",
+        "tiktok": "short-form creator tooling, safety moderation AI, and social commerce startups",
+        "airbnb": "trust-and-safety automation, host tooling, and travel operations optimization startups",
+        "booking": "hotel revenue optimization and travel pricing intelligence startups",
+        "stripe": "payment orchestration, fraud prevention, and B2B billing automation startups",
+        "paypal": "cross-border payments, checkout conversion, and digital wallet security startups",
+        "revolut": "SME finance automation and multi-currency treasury tooling startups",
+        "wise": "cross-border payment rails and remittance compliance automation startups",
+        "datadog": "observability correlation, incident intelligence, and platform reliability startups",
+        "cloudflare": "edge security, bot mitigation, and performance routing startups",
+        "github": "developer productivity, secure software supply-chain, and code review automation startups",
+        "gitlab": "DevSecOps pipeline optimization and compliance automation startups",
+        "notion": "knowledge graph, team productivity, and AI workspace assistant startups",
+        "figma": "design systems governance, prototyping intelligence, and product design collaboration startups",
+        "canva": "template intelligence, brand consistency automation, and creator tooling startups",
+        "openai": "AI infrastructure reliability, model evaluation, and domain-specific agent startups",
+        "uipath": "process mining, enterprise automation governance, and agentic RPA startups",
+        "bitdefender": "threat detection automation, endpoint behavior analytics, and SMB cyber defense startups",
+        "crowdstrike": "identity threat detection and autonomous SOC tooling startups",
+        "fortinet": "network security orchestration and zero-trust enforcement startups",
+        "palo alto": "cloud posture remediation and AI-driven security operations startups",
+        "ibm": "enterprise AI governance, mainframe modernization, and hybrid cloud integration startups",
+        "intel": "semiconductor optimization, AI acceleration software, and fab process startups",
+        "samsung": "consumer hardware UX, display innovations, and smart-device integration startups",
+        "xiaomi": "IoT ecosystem orchestration and smart-device affordability optimization startups",
+        "lufthansa": "aviation operations analytics, baggage automation, and passenger experience startups",
+        "ryanair": "turnaround efficiency and ancillary revenue optimization startups",
+        "vodafone": "5G enterprise services, network intelligence, and telecom automation startups",
+        "deezer": "audio personalization and creator monetization analytics startups",
+        "epic games": "real-time 3D tooling, creator ecosystems, and game pipeline optimization startups",
+    }
+    sector_interests = {
+        "cyber": "cybersecurity analytics, SOC automation, and zero-trust implementation startups",
+        "bank": "fintech risk models, fraud prevention, and payment automation startups",
+        "pay": "payment optimization, fraud prevention, and checkout conversion startups",
+        "cloud": "cloud reliability, spend optimization, and platform engineering startups",
+        "design": "design workflow automation and brand consistency tooling startups",
+        "auto": "mobility software, embedded systems, and fleet intelligence startups",
+        "travel": "travel operations optimization and personalized booking experience startups",
+        "chip": "semiconductor validation, packaging innovation, and firmware optimization startups",
+        "media": "content intelligence, personalization engines, and creator growth startups",
+        "retail": "inventory forecasting, logistics automation, and customer analytics startups",
+    }
+    collaboration_profiles = [
+        {
+            "keywords": ("nvidia", "amd", "qualcomm", "intel", "samsung"),
+            "score": "High",
+            "channels": ["Developer ecosystem", "Hardware integration pilots", "Strategic partner programs"],
+            "note": "Strong fit for technical startups that can prove integration value fast.",
+        },
+        {
+            "keywords": ("google", "microsoft", "amazon", "meta", "netflix", "oracle", "salesforce", "adobe"),
+            "score": "High",
+            "channels": ["API ecosystem", "Cloud marketplace", "Partner co-sell motions"],
+            "note": "Best path is product integration with measurable business impact.",
+        },
+        {
+            "keywords": ("stripe", "paypal", "revolut", "wise", "bank", "capital"),
+            "score": "Medium",
+            "channels": ["Fintech partnerships", "Compliance-first vendor onboarding", "Pilot-to-procurement"],
+            "note": "Readiness is good, but trust, compliance, and risk controls matter early.",
+        },
+        {
+            "keywords": ("uber", "tesla", "airbnb", "booking", "ryanair", "lufthansa"),
+            "score": "Medium",
+            "channels": ["Operational pilots", "Mobility/travel innovation programs", "Procurement-led partnerships"],
+            "note": "Most collaborations start with operational proof and clear ROI.",
+        },
+        {
+            "keywords": ("bitdefender", "crowdstrike", "palo alto", "fortinet", "cyber", "security"),
+            "score": "Medium",
+            "channels": ["Security integrations", "Technology alliance programs", "Joint go-to-market"],
+            "note": "Expect security validation and integration depth before expansion.",
+        },
+    ]
     if ro_context:
-        base_people = [
-            ("Tudor", "Popescu", "Technical Partnerships Manager", "Cluj-Napoca, Romania"),
-            ("Razvan", "Ionescu", "Director of Implementation", "Bucharest, Romania"),
-            ("Andrei", "Marinescu", "Solutions Engineering Lead", "Timisoara, Romania"),
-            ("Calin", "Vaduva", "Head of Strategic Accounts", "Oradea, Romania"),
-            ("Voicu", "Oprean", "Executive Advisor - Growth", "Cluj-Napoca, Romania"),
+        first_names = [
+            "Tudor",
+            "Razvan",
+            "Andrei",
+            "Calin",
+            "Voicu",
+            "Mihai",
+            "Vlad",
+            "Stefan",
+            "Alexandru",
+            "Radu",
+            "Ioana",
+            "Andreea",
+            "Elena",
+            "Maria",
+        ]
+        last_names = [
+            "Popescu",
+            "Ionescu",
+            "Marinescu",
+            "Vaduva",
+            "Oprean",
+            "Stan",
+            "Dumitrescu",
+            "Georgescu",
+            "Moldovan",
+            "Lazar",
+            "Ilie",
+            "Matei",
+        ]
+        locations = [
+            "Cluj-Napoca, Romania",
+            "Bucharest, Romania",
+            "Timisoara, Romania",
+            "Oradea, Romania",
+            "Iasi, Romania",
+            "Brasov, Romania",
         ]
     else:
-        base_people = [
-            ("Heather", "Taylor", "User Research Manager", "Berlin, Germany"),
-            ("Brandon", "Anders", "Director of Partner Engineering", "London, UK"),
-            ("Sara", "Stone", "Director of Creator Partnerships", "Paris, France"),
-            ("William", "Lane", "Director of Analytics", "Madrid, Spain"),
-            ("Tim", "Keller", "Director of Partnerships", "Amsterdam, Netherlands"),
+        first_names = [
+            "Heather",
+            "Brandon",
+            "Sara",
+            "William",
+            "Tim",
+            "Sophie",
+            "Liam",
+            "Noah",
+            "Emma",
+            "Ava",
+            "Lucas",
+            "Mia",
+            "Olivia",
+            "Ethan",
+        ]
+        last_names = [
+            "Taylor",
+            "Anders",
+            "Stone",
+            "Lane",
+            "Keller",
+            "Murphy",
+            "Carter",
+            "Hughes",
+            "Bennett",
+            "Reed",
+            "Walker",
+            "Parker",
+        ]
+        locations = [
+            "Berlin, Germany",
+            "London, UK",
+            "Paris, France",
+            "Madrid, Spain",
+            "Amsterdam, Netherlands",
+            "Dublin, Ireland",
+            "Stockholm, Sweden",
         ]
 
     employees = []
-    for idx, person in enumerate(base_people):
-        first, last, role, location = person
+    employee_count = 6
+    for idx in range(employee_count):
         p_seed = int(digest[idx * 4 : idx * 4 + 4], 16)
+        first = first_names[p_seed % len(first_names)]
+        last = last_names[(p_seed // 7) % len(last_names)]
+        role = roles_pool[(p_seed // 11) % len(roles_pool)]
+        location = locations[(p_seed // 13) % len(locations)]
         dept_rise = 8 + (p_seed % 18)
         interviews = 2 + (p_seed % 7)
         contact = 52 + (p_seed % 44)
         score = min(98, 58 + (p_seed % 40))
+        open_interviews = 1 + (p_seed % 2)
+        interest_text = "specialized startups that directly improve the company's core product or platform economics"
+        lowered_name = name.lower()
+        for key, value in interests_map.items():
+            if key in lowered_name:
+                interest_text = value
+                break
+        if interest_text.startswith("specialized startups"):
+            lowered_domain = (domain or "").lower()
+            combined = f"{lowered_name} {lowered_domain}"
+            for key, value in sector_interests.items():
+                if key in combined:
+                    interest_text = value
+                    break
+        pathway_reason = (
+            "Works across partner teams and can route strong startup intros to hiring and product groups."
+            if idx % 2 == 0
+            else "Owns integration-level decisions and often collaborates with recruiters for niche roles."
+        )
         employees.append(
             {
                 "id": f"{company_slug}-{first.lower()}-{last.lower()}",
@@ -287,6 +519,9 @@ def _build_company_insights(name: str, domain: str, country: str) -> dict:
                 "contact_likelihood_percent": contact,
                 "valuable_lead_score": score,
                 "outreach_window": "Best in next 7 days" if idx % 2 == 0 else "Strong this month",
+                "open_for_interviews_count": open_interviews,
+                "interested_in": interest_text,
+                "pathway_reason": pathway_reason,
             }
         )
 
@@ -298,7 +533,26 @@ def _build_company_insights(name: str, domain: str, country: str) -> dict:
         f"@people.{root}",
         f"@{prefix}.io",
     ]
-    return {"employees": employees, "email_terminations": terminations}
+    default_collab = {
+        "score": "Medium",
+        "channels": ["Pilot programs", "Partner referrals", "Procurement onboarding"],
+        "note": "Most firms collaborate after a small proof-of-value engagement.",
+    }
+    collaboration_readiness = default_collab
+    lowered_full = f"{name.lower()} {domain_base.lower()}"
+    for profile in collaboration_profiles:
+        if any(keyword in lowered_full for keyword in profile["keywords"]):
+            collaboration_readiness = {
+                "score": profile["score"],
+                "channels": profile["channels"],
+                "note": profile["note"],
+            }
+            break
+    return {
+        "employees": employees,
+        "email_terminations": terminations,
+        "collaboration_readiness": collaboration_readiness,
+    }
 
 
 def _hash_password(password: str) -> str:

@@ -49,6 +49,7 @@
         </div>
         <div class="nav-actions">
           <button id="dashboard-toggle" class="dashboard-toggle" type="button">Saved Leads</button>
+          <button id="contrast-toggle" class="dashboard-toggle" type="button">Contrast: Default</button>
           <button id="logout-button" class="logout-button" type="button">Logout</button>
           <button
             id="theme-toggle"
@@ -123,13 +124,38 @@
           </section>
         </section>
         <section id="dashboard-view" class="dashboard-view hidden">
+          <section class="goal-tracker-card">
+            <p class="search-label">Goal Tracker</p>
+            <div class="goal-tracker-row">
+              <label for="goal-target-input" class="goal-label">Weekly follow-up goal</label>
+              <input id="goal-target-input" class="goal-input" type="number" min="1" max="100" value="10" />
+              <button id="save-goal-target" class="refresh-saved-leads" type="button">Save Goal</button>
+            </div>
+            <p id="goal-progress-text" class="saved-leads-status">0 / 10 completed this week</p>
+          </section>
           <div class="saved-leads-header">
             <p class="search-label">Saved Leads Dashboard</p>
-            <button id="refresh-saved-leads" class="refresh-saved-leads" type="button">Refresh</button>
+            <div class="saved-leads-actions">
+              <button id="notifications-toggle" class="refresh-saved-leads" type="button">Notifications Off</button>
+              <button id="refresh-saved-leads" class="refresh-saved-leads" type="button">Refresh</button>
+              <button id="reset-saved-leads" class="reset-saved-leads" type="button">Reset List</button>
+            </div>
           </div>
+          <div id="sector-filters" class="sector-filters"></div>
+          <p id="saved-leads-status" class="saved-leads-status hidden"></p>
           <ul id="saved-leads-list" class="saved-leads-list"></ul>
         </section>
       </main>
+    </div>
+    <div id="remove-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="remove-modal-title">
+      <article class="modal-card">
+        <p id="remove-modal-title" class="modal-title">Remove saved lead?</p>
+        <p id="remove-modal-subtitle" class="modal-subtitle"></p>
+        <div class="modal-actions">
+          <button id="cancel-remove-lead" type="button" class="modal-cancel">Cancel</button>
+          <button id="confirm-remove-lead" type="button" class="modal-confirm">Yes, remove</button>
+        </div>
+      </article>
     </div>
     <script src="/frontend/app.js"></script>
   </body>

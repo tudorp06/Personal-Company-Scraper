@@ -8,10 +8,22 @@ const loginForm = document.getElementById("login-form");
 const authMessage = document.getElementById("auth-message");
 const logoutButton = document.getElementById("logout-button");
 const dashboardToggleButton = document.getElementById("dashboard-toggle");
+const contrastToggleButton = document.getElementById("contrast-toggle");
 const homeView = document.getElementById("home-view");
 const dashboardView = document.getElementById("dashboard-view");
 const savedLeadsList = document.getElementById("saved-leads-list");
 const refreshSavedLeadsButton = document.getElementById("refresh-saved-leads");
+const notificationsToggleButton = document.getElementById("notifications-toggle");
+const resetSavedLeadsButton = document.getElementById("reset-saved-leads");
+const savedLeadsStatus = document.getElementById("saved-leads-status");
+const sectorFilters = document.getElementById("sector-filters");
+const removeModal = document.getElementById("remove-modal");
+const removeModalSubtitle = document.getElementById("remove-modal-subtitle");
+const cancelRemoveLeadButton = document.getElementById("cancel-remove-lead");
+const confirmRemoveLeadButton = document.getElementById("confirm-remove-lead");
+const goalTargetInput = document.getElementById("goal-target-input");
+const saveGoalTargetButton = document.getElementById("save-goal-target");
+const goalProgressText = document.getElementById("goal-progress-text");
 const suggestions = document.getElementById("suggestions");
 const themeToggle = document.getElementById("theme-toggle");
 const companyCard = document.getElementById("company-card");
@@ -42,9 +54,19 @@ let selectedEmployee = null;
 let activeEmployeeView = "people";
 let companyInsights = { employees: [], email_terminations: [] };
 let activeMainView = "home";
+let activeSectorFilter = "All";
+let pendingRemoveLead = null;
+let currentUserEmail = "guest";
+let lastLoadedSavedLeads = [];
 const THEME_STORAGE_KEY = "ui_theme_preference";
+const CONTRAST_STORAGE_KEY = "ui_contrast_preference";
 const FAVORITES_STORAGE_KEY = "favorite_employees";
+const LEADS_NOTIFICATIONS_ENABLED_KEY = "leads_notifications_enabled";
+const LEADS_NOTIFICATIONS_MAP_KEY = "leads_notifications_map";
+const LEADS_STATUS_MAP_KEY = "leads_status_map";
 const BRANDFETCH_CLIENT_ID = "1id6iCSRkbc4cqe2MBu";
+const LEAD_SECTORS = ["All", "BigTech", "Tech", "Economics", "Properties", "CyberSec", "Graphic Design"];
+const CONTRAST_PRESETS = ["default", "high"];
 const FALLBACK_COMPANIES = [
   { name: "AROBS", domain: "arobs.com", country: "RO", source: "fallback", logo_url: "" },
   { name: "NTT DATA Romania", domain: "ro.nttdata.com", country: "RO", source: "fallback", logo_url: "" },
@@ -56,7 +78,27 @@ const FALLBACK_COMPANIES = [
   { name: "UiPath", domain: "uipath.com", country: "RO", source: "fallback", logo_url: "" },
   { name: "Bitdefender", domain: "bitdefender.com", country: "RO", source: "fallback", logo_url: "" },
   { name: "Endava", domain: "endava.com", country: "RO", source: "fallback", logo_url: "" },
+  { name: "NVIDIA", domain: "nvidia.com", country: "US", source: "fallback", logo_url: "" },
+  { name: "AMD", domain: "amd.com", country: "US", source: "fallback", logo_url: "" },
+  { name: "Qualcomm", domain: "qualcomm.com", country: "US", source: "fallback", logo_url: "" },
+  { name: "Logitech", domain: "logitech.com", country: "CH", source: "fallback", logo_url: "" },
+  { name: "Apple", domain: "apple.com", country: "US", source: "fallback", logo_url: "" },
+  { name: "Amazon", domain: "amazon.com", country: "US", source: "fallback", logo_url: "" },
+  { name: "Facebook", domain: "facebook.com", country: "US", source: "fallback", logo_url: "" },
+  { name: "Meta", domain: "meta.com", country: "US", source: "fallback", logo_url: "" },
+  { name: "Netflix", domain: "netflix.com", country: "US", source: "fallback", logo_url: "" },
   { name: "Google", domain: "google.com", country: "US", source: "fallback", logo_url: "" },
+  { name: "Microsoft", domain: "microsoft.com", country: "US", source: "fallback", logo_url: "" },
+  { name: "Alphabet", domain: "abc.xyz", country: "US", source: "fallback", logo_url: "" },
+  { name: "Amazon Web Services", domain: "aws.amazon.com", country: "US", source: "fallback", logo_url: "" },
+  { name: "JPMorgan Chase", domain: "jpmorganchase.com", country: "US", source: "fallback", logo_url: "" },
+  { name: "Goldman Sachs", domain: "goldmansachs.com", country: "US", source: "fallback", logo_url: "" },
+  { name: "Morgan Stanley", domain: "morganstanley.com", country: "US", source: "fallback", logo_url: "" },
+  { name: "Citigroup", domain: "citi.com", country: "US", source: "fallback", logo_url: "" },
+  { name: "Wells Fargo", domain: "wellsfargo.com", country: "US", source: "fallback", logo_url: "" },
+  { name: "Capital One", domain: "capitalone.com", country: "US", source: "fallback", logo_url: "" },
+  { name: "Visa", domain: "visa.com", country: "US", source: "fallback", logo_url: "" },
+  { name: "Robinhood", domain: "robinhood.com", country: "US", source: "fallback", logo_url: "" },
   { name: "Stripe", domain: "stripe.com", country: "US", source: "fallback", logo_url: "" },
 ];
 
@@ -97,6 +139,9 @@ async function resolveSession() {
       showAuthScreen();
       return;
     }
+    const payload = await response.json().catch(() => ({}));
+    currentUserEmail = payload?.user?.email || "guest";
+    loadGoalTarget();
     showAppShell();
   } catch {
     showAuthScreen();
@@ -113,6 +158,14 @@ function applyTheme(theme) {
   themeToggle?.setAttribute("aria-label", "Switch to dark mode");
 }
 
+function goalTargetStorageKey() {
+  return `goal_target_${currentUserEmail || "guest"}`;
+}
+
+function contrastStorageKey() {
+  return CONTRAST_STORAGE_KEY;
+}
+
 function getInitialTheme() {
   const savedTheme = localStorage.getItem(THEME_STORAGE_KEY);
   if (savedTheme === "dark" || savedTheme === "light") {
@@ -121,11 +174,31 @@ function getInitialTheme() {
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
+function applyContrastPreset(preset) {
+  const safePreset = preset === "high" ? "high" : "default";
+  document.documentElement.setAttribute("data-contrast", safePreset);
+  if (contrastToggleButton) {
+    contrastToggleButton.textContent = safePreset === "high" ? "Contrast: High" : "Contrast: Default";
+  }
+}
+
+function getInitialContrast() {
+  const stored = localStorage.getItem(contrastStorageKey());
+  return stored === "high" ? "high" : "default";
+}
+
 function toggleTheme() {
   const currentTheme = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
   const nextTheme = currentTheme === "dark" ? "light" : "dark";
   localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
   applyTheme(nextTheme);
+}
+
+function toggleContrast() {
+  const current = document.documentElement.getAttribute("data-contrast") === "high" ? "high" : "default";
+  const next = current === "high" ? "default" : "high";
+  localStorage.setItem(contrastStorageKey(), next);
+  applyContrastPreset(next);
 }
 
 function createSuggestionItem(company) {
@@ -179,10 +252,8 @@ function brandfetchLogoUrl(domain) {
 
 function employeeMocks(companyName) {
   const normalized = companyName.toLowerCase();
-  const parts = companyName.split(" ");
-  const first = parts[0] || companyName;
-  const companyDomain = companyName.toLowerCase().replace(/[^a-z0-9]/g, "");
-  const redactedEmail = `{redacted}@${companyDomain}.company`;
+  const companySlug = companyName.toLowerCase().replace(/[^a-z0-9]/g, "") || "company";
+  const redactedEmail = `{redacted}@${companySlug}.company`;
   const romanianCompany =
     normalized.includes("fortech") ||
     normalized.includes("arobs") ||
@@ -190,23 +261,39 @@ function employeeMocks(companyName) {
     normalized.includes("bitdefender") ||
     normalized.includes("endava") ||
     normalized.includes("ntt data romania");
-
-  if (romanianCompany) {
-    return [
-      { id: `${first}-tudor`, firstName: "Tudor", lastName: "Popescu", role: "Technical Partnerships Manager", email: redactedEmail, location: "Cluj-Napoca, Romania" },
-      { id: `${first}-razvan`, firstName: "Razvan", lastName: "Ionescu", role: "Director of Implementation", email: redactedEmail, location: "Bucharest, Romania" },
-      { id: `${first}-andrei`, firstName: "Andrei", lastName: "Marinescu", role: "Solutions Engineering Lead", email: redactedEmail, location: "Timisoara, Romania" },
-      { id: `${first}-calin`, firstName: "Calin", lastName: "Vaduva", role: "Head of Strategic Accounts", email: redactedEmail, location: "Oradea, Romania" },
-      { id: `${first}-voicu`, firstName: "Voicu", lastName: "Oprean", role: "Executive Advisor - Growth", email: redactedEmail, location: "Cluj-Napoca, Romania" },
-    ];
-  }
-  return [
-    { id: `${first}-heather`, firstName: "Heather", lastName: "Taylor", role: "User Research Manager", email: redactedEmail, location: "Berlin, Germany" },
-    { id: `${first}-brandon`, firstName: "Brandon", lastName: "Anders", role: "Director of Partner Engineering", email: redactedEmail, location: "London, UK" },
-    { id: `${first}-sara`, firstName: "Sara", lastName: "Stone", role: "Director of Creator Partnerships", email: redactedEmail, location: "Paris, France" },
-    { id: `${first}-william`, firstName: "William", lastName: "Lane", role: "Director of Analytics", email: redactedEmail, location: "Cluj-Napoca, Romania" },
-    { id: `${first}-tim`, firstName: "Tim", lastName: "Keller", role: "Director of Partnerships", email: redactedEmail, location: "Madrid, Spain" },
+  const roles = [
+    "Technical Partnerships Manager",
+    "Director of Implementation",
+    "Solutions Engineering Lead",
+    "Head of Strategic Accounts",
+    "Executive Advisor - Growth",
+    "Platform Partnerships Lead",
+    "Business Development Manager",
   ];
+  const roFirst = ["Tudor", "Razvan", "Andrei", "Calin", "Voicu", "Mihai", "Vlad", "Alexandru", "Radu", "Ioana"];
+  const roLast = ["Popescu", "Ionescu", "Marinescu", "Vaduva", "Oprean", "Stan", "Dumitrescu", "Moldovan"];
+  const roLocations = ["Cluj-Napoca, Romania", "Bucharest, Romania", "Timisoara, Romania", "Oradea, Romania", "Iasi, Romania"];
+  const intlFirst = ["Heather", "Brandon", "Sara", "William", "Tim", "Sophie", "Liam", "Noah", "Emma", "Ava"];
+  const intlLast = ["Taylor", "Anders", "Stone", "Lane", "Keller", "Murphy", "Carter", "Hughes"];
+  const intlLocations = ["Berlin, Germany", "London, UK", "Paris, France", "Madrid, Spain", "Amsterdam, Netherlands", "Dublin, Ireland"];
+
+  const firstPool = romanianCompany ? roFirst : intlFirst;
+  const lastPool = romanianCompany ? roLast : intlLast;
+  const locPool = romanianCompany ? roLocations : intlLocations;
+  const base = Array.from(companySlug).reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  return Array.from({ length: 6 }).map((_, idx) => {
+    const seed = base + idx * 17;
+    const firstName = firstPool[seed % firstPool.length];
+    const lastName = lastPool[(seed * 3) % lastPool.length];
+    return {
+      id: `${companySlug}-${firstName.toLowerCase()}-${lastName.toLowerCase()}-${idx}`,
+      firstName,
+      lastName,
+      role: roles[(seed * 5) % roles.length],
+      email: redactedEmail,
+      location: locPool[(seed * 7) % locPool.length],
+    };
+  });
 }
 
 async function fetchCompanyInsights(company) {
@@ -264,6 +351,236 @@ async function saveFavoriteToServer(employee, company) {
   return response.ok;
 }
 
+function showSavedLeadsStatus(message) {
+  if (!savedLeadsStatus) return;
+  if (!message) {
+    savedLeadsStatus.textContent = "";
+    savedLeadsStatus.classList.add("hidden");
+    return;
+  }
+  savedLeadsStatus.textContent = message;
+  savedLeadsStatus.classList.remove("hidden");
+}
+
+function leadNotificationKey(item) {
+  return `${item.company_name || ""}|${item.employer_name || ""}|${item.employer_role || ""}`.toLowerCase();
+}
+
+function leadNotificationsMap() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(LEADS_NOTIFICATIONS_MAP_KEY) || "{}");
+    return typeof parsed === "object" && parsed ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveLeadNotificationsMap(map) {
+  localStorage.setItem(LEADS_NOTIFICATIONS_MAP_KEY, JSON.stringify(map));
+}
+
+function notificationsEnabled() {
+  return localStorage.getItem(LEADS_NOTIFICATIONS_ENABLED_KEY) === "1";
+}
+
+function updateNotificationsToggleButton() {
+  if (!notificationsToggleButton) return;
+  const enabled = notificationsEnabled();
+  notificationsToggleButton.textContent = enabled ? "Notifications On" : "Notifications Off";
+}
+
+function setNotificationsEnabled(enabled) {
+  localStorage.setItem(LEADS_NOTIFICATIONS_ENABLED_KEY, enabled ? "1" : "0");
+  updateNotificationsToggleButton();
+  if (enabled) {
+    showSavedLeadsStatus("Notifications are active for selected leads.");
+  } else {
+    showSavedLeadsStatus("Notifications are paused. Turn them on to receive interview-open alerts.");
+  }
+}
+
+function isLeadNotificationOn(item) {
+  const map = leadNotificationsMap();
+  return Boolean(map[leadNotificationKey(item)]);
+}
+
+function setLeadNotification(item, enabled) {
+  const map = leadNotificationsMap();
+  map[leadNotificationKey(item)] = Boolean(enabled);
+  saveLeadNotificationsMap(map);
+}
+
+function leadStatusMap() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(LEADS_STATUS_MAP_KEY) || "{}");
+    return typeof parsed === "object" && parsed ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveLeadStatusMap(map) {
+  localStorage.setItem(LEADS_STATUS_MAP_KEY, JSON.stringify(map));
+}
+
+function leadStatusFor(item) {
+  const map = leadStatusMap();
+  return map[leadNotificationKey(item)] || "hot";
+}
+
+function setLeadStatus(item, status) {
+  const safeStatus = ["hot", "follow-up", "cv"].includes(status) ? status : "hot";
+  const map = leadStatusMap();
+  map[leadNotificationKey(item)] = safeStatus;
+  saveLeadStatusMap(map);
+}
+
+function leadAlertForScore(scoreRaw) {
+  const score = Number(scoreRaw) || 0;
+  if (score >= 85) return { badge: "High", label: "High priority", tier: "high" };
+  if (score >= 70) return { badge: "Medium", label: "Strong lead", tier: "mid" };
+  return { badge: "Low", label: "Watch lead", tier: "low" };
+}
+
+async function clearSavedLeadsOnServer() {
+  const response = await fetch("/api/user/saved-employers", { method: "DELETE" });
+  return response.ok;
+}
+
+async function deleteSavedLeadOnServer(item) {
+  const query = new URLSearchParams({ id: item.id || "" });
+  const response = await fetch(`/api/user/saved-employers?${query.toString()}`, { method: "DELETE" });
+  return response.ok;
+}
+
+function inferCompanySector(item) {
+  const text = `${item.company_name || ""} ${(item.company_domain || "")}`.toLowerCase();
+  if (/google|alphabet|apple|amazon|meta|microsoft|netflix/.test(text)) return "BigTech";
+  if (/nvidia|amd|qualcomm|snap|logitech|openai|stripe|adobe|oracle|salesforce|uber|airbnb|spotify|figma|canva/.test(text)) return "Tech";
+  if (/bank|capital|finance|econom|visa|mastercard|paypal|revolut|wise|jpmorgan|goldman|morgan/.test(text)) return "Economics";
+  if (/estate|property|properties|realty|real estate|imobil|housing/.test(text)) return "Properties";
+  if (/bitdefender|crowdstrike|palo alto|fortinet|sentinel|cyber|security/.test(text)) return "CyberSec";
+  if (/design|figma|canva|adobe/.test(text)) return "Graphic Design";
+  return "Tech";
+}
+
+function renderSectorFilters() {
+  if (!sectorFilters) return;
+  sectorFilters.innerHTML = "";
+  LEAD_SECTORS.forEach((sector) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `sector-filter-chip ${activeSectorFilter === sector ? "is-active" : ""}`;
+    button.dataset.sector = sector;
+    button.textContent = sector;
+    sectorFilters.appendChild(button);
+  });
+}
+
+function loadGoalTarget() {
+  const raw = Number(localStorage.getItem(goalTargetStorageKey()) || "10");
+  const target = Number.isFinite(raw) && raw > 0 ? Math.min(100, Math.floor(raw)) : 10;
+  if (goalTargetInput) goalTargetInput.value = String(target);
+  return target;
+}
+
+function saveGoalTarget() {
+  const raw = Number(goalTargetInput?.value || "10");
+  const target = Number.isFinite(raw) && raw > 0 ? Math.min(100, Math.floor(raw)) : 10;
+  localStorage.setItem(goalTargetStorageKey(), String(target));
+  if (goalTargetInput) goalTargetInput.value = String(target);
+  updateGoalProgress(lastLoadedSavedLeads);
+}
+
+function updateGoalProgress(items) {
+  const target = loadGoalTarget();
+  const done = (items || []).filter((item) => {
+    const status = leadStatusFor(item);
+    return status === "follow-up" || status === "cv";
+  }).length;
+  if (goalProgressText) {
+    goalProgressText.textContent = `${done} / ${target} completed this week`;
+  }
+}
+
+function toCsvValue(value) {
+  const text = String(value ?? "");
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function exportLeadToCsv(item) {
+  const columns = [
+    "id",
+    "employer_name",
+    "employer_role",
+    "company_name",
+    "company_domain",
+    "employer_email",
+    "employer_location",
+    "lead_score",
+    "sector",
+    "status",
+    "notifications_enabled",
+    "created_at",
+  ];
+  const row = [
+    item.id,
+    item.employer_name,
+    item.employer_role,
+    item.company_name,
+    item.company_domain,
+    item.employer_email,
+    item.employer_location,
+    item.lead_score,
+    item.sector || inferCompanySector(item),
+    leadStatusFor(item),
+    isLeadNotificationOn(item) ? "true" : "false",
+    item.created_at,
+  ];
+  const csv = `${columns.join(",")}\n${row.map(toCsvValue).join(",")}\n`;
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  const safeName = `${item.employer_name || "lead"}-${item.company_name || "company"}`
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  anchor.download = `${safeName || "saved-lead"}.csv`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+function buildLeadRecordFromEmployee(employee, company) {
+  return {
+    id: employee.id || `${(company.name || "company").toLowerCase()}-${(employee.firstName || "lead").toLowerCase()}`,
+    employer_name: `${employee.firstName || ""} ${employee.lastName || ""}`.trim(),
+    employer_role: employee.role || "",
+    company_name: company.name || "",
+    company_domain: buildCompanyDomain(company),
+    employer_email: employee.email || "",
+    employer_location: employee.location || "",
+    lead_score: employee.valuableLeadScore || 0,
+    sector: inferCompanySector({ company_name: company.name, company_domain: company.domain }),
+    created_at: new Date().toISOString(),
+  };
+}
+
+function openRemoveModal(item, key) {
+  pendingRemoveLead = { item, key };
+  if (removeModalSubtitle) {
+    removeModalSubtitle.textContent = `${item.employer_name} · ${item.employer_role} at ${item.company_name}`;
+  }
+  removeModal?.classList.remove("hidden");
+}
+
+function closeRemoveModal() {
+  pendingRemoveLead = null;
+  removeModal?.classList.add("hidden");
+}
+
 async function loadSavedLeads() {
   if (!savedLeadsList) return;
   savedLeadsList.innerHTML = "";
@@ -273,28 +590,81 @@ async function loadSavedLeads() {
       return;
     }
     const payload = await response.json();
-    const items = Array.isArray(payload.items) ? payload.items : [];
+    const rawItems = Array.isArray(payload.items) ? payload.items : [];
+    lastLoadedSavedLeads = rawItems.map((item) => ({ ...item, sector: inferCompanySector(item) }));
+    updateGoalProgress(lastLoadedSavedLeads);
+    const items = rawItems
+      .map((item) => ({ ...item, sector: inferCompanySector(item) }))
+      .filter((item) => activeSectorFilter === "All" || item.sector === activeSectorFilter);
     if (items.length === 0) {
+      if (rawItems.length === 0) {
+        lastLoadedSavedLeads = [];
+        updateGoalProgress([]);
+      }
       const empty = document.createElement("li");
       empty.className = "saved-lead-item";
-      empty.innerHTML = `<p class="saved-lead-meta">No saved leads yet.</p>`;
+      empty.innerHTML = `<p class="saved-lead-meta">No saved leads for this sector yet.</p>`;
       savedLeadsList.appendChild(empty);
+      showSavedLeadsStatus("");
       return;
     }
+    const notifyMasterOn = notificationsEnabled();
     items.forEach((item) => {
       const row = document.createElement("li");
       row.className = "saved-lead-item";
+      const notifyOn = notifyMasterOn && isLeadNotificationOn(item);
+    const key = leadNotificationKey(item);
+      const status = leadStatusFor(item);
+      const alert = leadAlertForScore(item.lead_score);
       row.innerHTML = `
-        <p class="saved-lead-title">${item.employer_name} · ${item.employer_role}</p>
+        <div class="saved-lead-item-head">
+          <p class="saved-lead-title">
+            <span class="saved-lead-alert saved-lead-alert-${alert.tier}" title="${alert.label}">${alert.badge}</span>
+            ${item.employer_name} · ${item.employer_role}
+          </p>
+          <div class="saved-lead-actions-right">
+            <button type="button" class="saved-lead-notify ${notifyOn ? "is-on" : ""}" data-lead-key="${key}" ${notifyMasterOn ? "" : "disabled"}>
+              ${notifyOn ? "Notify On" : "Notify Off"}
+            </button>
+            <button type="button" class="saved-lead-export" data-lead-id="${item.id || ""}">Export CSV</button>
+            <button
+              type="button"
+              class="saved-lead-delete"
+              data-delete-lead="${key}"
+              data-lead-id="${item.id || ""}"
+              data-employer-name="${item.employer_name || ""}"
+              data-employer-role="${item.employer_role || ""}"
+              data-company-name="${item.company_name || ""}"
+            >
+              Remove
+            </button>
+          </div>
+        </div>
         <p class="saved-lead-meta">${item.company_name} · score ${item.lead_score}</p>
+        <div class="saved-lead-controls">
+          <span class="saved-lead-sector">${item.sector}</span>
+          <div class="saved-lead-status-chips" role="group" aria-label="Lead status">
+            <button type="button" class="saved-lead-status-chip ${status === "hot" ? "is-active" : ""}" data-lead-key="${key}" data-status="hot" aria-pressed="${status === "hot"}">Hot</button>
+            <button type="button" class="saved-lead-status-chip ${status === "follow-up" ? "is-active" : ""}" data-lead-key="${key}" data-status="follow-up" aria-pressed="${status === "follow-up"}">Follow-up</button>
+            <button type="button" class="saved-lead-status-chip ${status === "cv" ? "is-active" : ""}" data-lead-key="${key}" data-status="cv" aria-pressed="${status === "cv"}">CV</button>
+          </div>
+        </div>
       `;
       savedLeadsList.appendChild(row);
     });
+    if (!notifyMasterOn) {
+      showSavedLeadsStatus("Notifications are paused. Turn them on to receive interview-open alerts.");
+    } else {
+      showSavedLeadsStatus("");
+    }
   } catch {
+    lastLoadedSavedLeads = [];
+    updateGoalProgress([]);
     const error = document.createElement("li");
     error.className = "saved-lead-item";
     error.innerHTML = `<p class="saved-lead-meta">Could not load saved leads.</p>`;
     savedLeadsList.appendChild(error);
+    showSavedLeadsStatus("Could not refresh saved leads right now.");
   }
 }
 
@@ -358,6 +728,9 @@ function renderEmployeeRows(company) {
     contactLikelihoodPercent: employee.contact_likelihood_percent,
     valuableLeadScore: employee.valuable_lead_score,
     outreachWindow: employee.outreach_window,
+    openForInterviewsCount: employee.open_for_interviews_count,
+    interestedIn: employee.interested_in,
+    pathwayReason: employee.pathway_reason,
   }));
   if (currentEmployees.length === 0) {
     currentEmployees = employeeMocks(company.name);
@@ -378,20 +751,25 @@ function renderEmployeeRows(company) {
 }
 
 function buildValuableLeadInsights(company) {
-  return currentEmployees.map((employee, index) => {
-    const deptRise = employee.departmentRisePercent ?? 8 + index * 3;
-    const interviews = employee.interviewsHeldRecently ?? 3 + index;
-    const contactChance = employee.contactLikelihoodPercent ?? 58 + index * 7;
+  const blockedManagerRoles = /(ceo|cto|tech manager|vp|chief|founder|head of engineering)/i;
+  const chosen = currentEmployees
+    .filter((employee) => !blockedManagerRoles.test(employee.role || ""))
+    .sort((a, b) => (b.valuableLeadScore || 0) - (a.valuableLeadScore || 0))
+    .slice(0, 3);
+  return chosen.map((employee, index) => {
+    const interviews = employee.openForInterviewsCount ?? (1 + (index % 2));
     const score = employee.valuableLeadScore ?? Math.min(95, 64 + index * 6);
     const outreachWindow = employee.outreachWindow ?? (index % 2 === 0 ? "Best in next 7 days" : "Strong this month");
     return {
       employee,
-      deptRise,
       interviews,
-      contactChance,
       score,
       outreachWindow,
-      recentTrigger: `${company.name} department growth +${deptRise}% in last quarter`,
+      pathwayReason:
+        employee.pathwayReason ||
+        "Collaborates across product and talent teams, making them a practical intro point into the company.",
+      interestedIn:
+        employee.interestedIn || "high-upside technical startups that solve concrete operational problems",
     };
   });
 }
@@ -399,6 +777,25 @@ function buildValuableLeadInsights(company) {
 function renderValuableLeads(company) {
   const insights = buildValuableLeadInsights(company);
   valuableLeadsPanel.innerHTML = "";
+  const readiness = companyInsights.collaboration_readiness || null;
+  if (readiness) {
+    const channels = Array.isArray(readiness.channels) ? readiness.channels : [];
+    const readinessCard = document.createElement("article");
+    readinessCard.className = "lead-readiness-card";
+    readinessCard.innerHTML = `
+      <p class="lead-readiness-title">Collaboration readiness: ${readiness.score || "Medium"}</p>
+      <p class="lead-role">${readiness.note || ""}</p>
+      <p class="lead-role"><strong>Best channels:</strong> ${channels.join(" · ")}</p>
+    `;
+    valuableLeadsPanel.appendChild(readinessCard);
+  }
+  if (insights.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "lead-role";
+    empty.textContent = "No suitable pathway contacts found yet for this company.";
+    valuableLeadsPanel.appendChild(empty);
+    return;
+  }
   insights.forEach((item) => {
     const card = document.createElement("article");
     card.className = "lead-insight-card";
@@ -412,23 +809,20 @@ function renderValuableLeads(company) {
       </div>
       <div class="lead-metrics">
         <div class="lead-metric">
-          <p class="lead-metric-label">Department rising</p>
-          <p class="lead-metric-value">+${item.deptRise}%</p>
-        </div>
-        <div class="lead-metric">
-          <p class="lead-metric-label">Recent interviews</p>
-          <p class="lead-metric-value">${item.interviews} held</p>
-        </div>
-        <div class="lead-metric">
-          <p class="lead-metric-label">Contact likelihood</p>
-          <p class="lead-metric-value">${item.contactChance}%</p>
+          <p class="lead-metric-label">Is open for</p>
+          <p class="lead-metric-value">${item.interviews} interview${item.interviews === 1 ? "" : "s"}</p>
         </div>
         <div class="lead-metric">
           <p class="lead-metric-label">Outreach window</p>
           <p class="lead-metric-value">${item.outreachWindow}</p>
         </div>
       </div>
-      <p class="lead-role">${item.recentTrigger}</p>
+      <p class="lead-role"><strong>Why this is a pathway:</strong> ${item.pathwayReason}</p>
+      <p class="lead-role"><strong>Usually interested in:</strong> ${item.interestedIn}</p>
+      <div class="lead-actions">
+        <button type="button" class="lead-action-btn lead-action-save" data-employee-id="${item.employee.id}">Add to Favorites</button>
+        <button type="button" class="lead-action-btn lead-action-export" data-employee-id="${item.employee.id}">Export CSV</button>
+      </div>
     `;
     valuableLeadsPanel.appendChild(card);
   });
@@ -589,11 +983,18 @@ favoriteButton?.addEventListener("click", async () => {
   if (!savedToServer) {
     // Fallback for users not logged in yet.
     saveFavorite(selectedEmployee, selectedCompany);
+  } else {
+    // Keep local visual state in sync with successful server save.
+    saveFavorite(selectedEmployee, selectedCompany);
   }
   if (savedToServer) {
     void loadSavedLeads();
   }
   updateFavoriteButton(selectedEmployee);
+  favoriteButton.classList.add("favorite-flash");
+  setTimeout(() => {
+    favoriteButton.classList.remove("favorite-flash");
+  }, 450);
 });
 refreshSavedLeadsButton?.addEventListener("click", () => {
   void loadSavedLeads();
@@ -602,6 +1003,148 @@ dashboardToggleButton?.addEventListener("click", () => {
   const nextView = activeMainView === "home" ? "dashboard" : "home";
   setMainView(nextView);
 });
+notificationsToggleButton?.addEventListener("click", () => {
+  const next = !notificationsEnabled();
+  setNotificationsEnabled(next);
+  void loadSavedLeads();
+});
+resetSavedLeadsButton?.addEventListener("click", async () => {
+  const confirmed = window.confirm("Reset saved leads list? This will remove all saved leads for your account.");
+  if (!confirmed) return;
+  const ok = await clearSavedLeadsOnServer().catch(() => false);
+  if (!ok) {
+    showSavedLeadsStatus("Could not reset list right now.");
+    return;
+  }
+  saveLeadNotificationsMap({});
+  showSavedLeadsStatus("Saved leads list was reset.");
+  void loadSavedLeads();
+});
+savedLeadsList?.addEventListener("click", (event) => {
+  const exportButton = event.target.closest(".saved-lead-export");
+  if (exportButton) {
+    const leadId = exportButton.dataset.leadId || "";
+    if (!leadId) return;
+    const item = lastLoadedSavedLeads.find((lead) => lead.id === leadId);
+    if (!item) return;
+    exportLeadToCsv(item);
+    showSavedLeadsStatus("Lead exported to CSV.");
+    return;
+  }
+
+  const deleteButton = event.target.closest(".saved-lead-delete");
+  if (deleteButton) {
+    const key = deleteButton.dataset.deleteLead || "";
+    const id = deleteButton.dataset.leadId || "";
+    const employer_name = deleteButton.dataset.employerName || "";
+    const employer_role = deleteButton.dataset.employerRole || "";
+    const company_name = deleteButton.dataset.companyName || "";
+    if (!key || !id) return;
+    openRemoveModal({ id, company_name, employer_name, employer_role }, key);
+    return;
+  }
+
+  const statusChip = event.target.closest(".saved-lead-status-chip");
+  if (statusChip) {
+    const key = statusChip.dataset.leadKey || "";
+    const nextStatus = statusChip.dataset.status || "hot";
+    if (!key) return;
+    const map = leadStatusMap();
+    map[key] = nextStatus;
+    saveLeadStatusMap(map);
+
+    const group = statusChip.closest(".saved-lead-status-chips");
+    if (!group) return;
+    const chips = group.querySelectorAll(".saved-lead-status-chip");
+    chips.forEach((chip) => {
+      const active = chip === statusChip;
+      chip.classList.toggle("is-active", active);
+      chip.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+    return;
+  }
+
+  const button = event.target.closest(".saved-lead-notify");
+  if (!button) return;
+  const key = button.dataset.leadKey || "";
+  if (!key) return;
+  const map = leadNotificationsMap();
+  const next = !Boolean(map[key]);
+  map[key] = next;
+  saveLeadNotificationsMap(map);
+  button.classList.toggle("is-on", next);
+  button.textContent = next ? "Notify On" : "Notify Off";
+});
+valuableLeadsPanel?.addEventListener("click", (event) => {
+  const actionButton = event.target.closest(".lead-action-btn");
+  if (!actionButton || !selectedCompany) return;
+  const employeeId = actionButton.dataset.employeeId || "";
+  const employee = currentEmployees.find((item) => item.id === employeeId);
+  if (!employee) return;
+  const leadRecord = buildLeadRecordFromEmployee(employee, selectedCompany);
+
+  if (actionButton.classList.contains("lead-action-export")) {
+    exportLeadToCsv(leadRecord);
+    showSavedLeadsStatus("Valuable lead exported to CSV.");
+    return;
+  }
+
+  if (actionButton.classList.contains("lead-action-save")) {
+    void (async () => {
+      let savedToServer = false;
+      try {
+        savedToServer = await saveFavoriteToServer(employee, selectedCompany);
+      } catch {
+        savedToServer = false;
+      }
+      saveFavorite(employee, selectedCompany);
+      showSavedLeadsStatus(savedToServer ? "Lead added to favorites." : "Lead saved locally (not authenticated on backend).");
+      updateFavoriteButton(selectedEmployee);
+      if (savedToServer && activeMainView === "dashboard") {
+        await loadSavedLeads();
+      }
+    })();
+  }
+});
+cancelRemoveLeadButton?.addEventListener("click", () => {
+  closeRemoveModal();
+});
+removeModal?.addEventListener("click", (event) => {
+  if (event.target === removeModal) closeRemoveModal();
+});
+confirmRemoveLeadButton?.addEventListener("click", () => {
+  if (!pendingRemoveLead) return;
+  const { item, key } = pendingRemoveLead;
+  closeRemoveModal();
+  void (async () => {
+    const ok = await deleteSavedLeadOnServer(item).catch(() => false);
+    if (!ok) {
+      showSavedLeadsStatus("Could not remove lead right now.");
+      return;
+    }
+    const notifications = leadNotificationsMap();
+    const statuses = leadStatusMap();
+    delete notifications[key];
+    delete statuses[key];
+    saveLeadNotificationsMap(notifications);
+    saveLeadStatusMap(statuses);
+    showSavedLeadsStatus("Lead removed.");
+    await loadSavedLeads();
+  })();
+});
+saveGoalTargetButton?.addEventListener("click", () => {
+  saveGoalTarget();
+  showSavedLeadsStatus("Goal target saved.");
+});
+sectorFilters?.addEventListener("click", (event) => {
+  const chip = event.target.closest(".sector-filter-chip");
+  if (!chip) return;
+  const next = chip.dataset.sector || "All";
+  activeSectorFilter = LEAD_SECTORS.includes(next) ? next : "All";
+  renderSectorFilters();
+  void loadSavedLeads();
+});
+contrastToggleButton?.addEventListener("click", toggleContrast);
 themeToggle?.addEventListener("click", toggleTheme);
 showRegisterButton?.addEventListener("click", () => setAuthTab("register"));
 showLoginButton?.addEventListener("click", () => setAuthTab("login"));
@@ -624,6 +1167,8 @@ registerForm?.addEventListener("submit", async (event) => {
     if (authMessage) authMessage.textContent = "Account created, but sign-in failed.";
     return;
   }
+  currentUserEmail = email || "guest";
+  loadGoalTarget();
   showAppShell();
 });
 loginForm?.addEventListener("submit", async (event) => {
@@ -635,13 +1180,24 @@ loginForm?.addEventListener("submit", async (event) => {
     if (authMessage) authMessage.textContent = loginRes.data?.error || "Sign in failed.";
     return;
   }
+  currentUserEmail = email || "guest";
+  loadGoalTarget();
   showAppShell();
 });
 logoutButton?.addEventListener("click", async () => {
   await authRequest("/api/auth/logout", {});
+  currentUserEmail = "guest";
+  loadGoalTarget();
   showAuthScreen();
 });
 applyTheme(getInitialTheme());
+applyContrastPreset(getInitialContrast());
+renderSectorFilters();
+updateNotificationsToggleButton();
+loadGoalTarget();
+if (!localStorage.getItem(LEADS_NOTIFICATIONS_ENABLED_KEY)) {
+  setNotificationsEnabled(false);
+}
 setAuthTab("register");
 showAuthScreen();
 void resolveSession();
