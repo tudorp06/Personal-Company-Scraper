@@ -39,6 +39,50 @@
         />
         </div>
         <ul id="suggestions" class="suggestions" aria-live="polite"></ul>
+        <section id="company-card" class="company-card hidden" aria-live="polite">
+          <header class="company-card-header">
+            <img id="selected-company-logo" class="selected-company-logo" alt="Company logo" />
+            <div class="selected-company-meta">
+              <p id="selected-company-name" class="selected-company-name"></p>
+              <p id="selected-company-details" class="selected-company-details"></p>
+            </div>
+          </header>
+
+          <div class="employee-tabs">
+            <button type="button" class="employee-tab active">People</button>
+            <button type="button" class="employee-tab">Valuable Leads</button>
+            <button type="button" class="employee-tab">Addresses</button>
+          </div>
+
+          <ul id="employee-list" class="employee-list"></ul>
+
+          <article id="employee-card" class="employee-card hidden" aria-live="polite">
+            <header class="employee-card-header">
+              <img id="employee-card-company-logo" class="employee-card-company-logo" alt="Company logo" />
+              <p id="employee-card-company-name" class="employee-card-company-name"></p>
+            </header>
+            <div class="employee-card-grid">
+              <p class="employee-field-label">First Name</p>
+              <p id="employee-card-first-name" class="employee-field-value"></p>
+
+              <p class="employee-field-label">Last Name</p>
+              <p id="employee-card-last-name" class="employee-field-value"></p>
+
+              <p class="employee-field-label">E-mail</p>
+              <p id="employee-card-email" class="employee-field-value employee-field-highlight"></p>
+
+              <p class="employee-field-label">Role</p>
+              <p id="employee-card-role" class="employee-field-value"></p>
+
+              <p class="employee-field-label">Company</p>
+              <p id="employee-card-company" class="employee-field-value employee-field-highlight"></p>
+
+              <p class="employee-field-label">Location</p>
+              <p id="employee-card-location" class="employee-field-value"></p>
+            </div>
+            <button id="favorite-button" type="button" class="favorite-button">Add to Favorites</button>
+          </article>
+        </section>
       </div>
     </main>
     <script src="./app.js"></script>

@@ -29,9 +29,7 @@ def _load_dotenv() -> None:
 _load_dotenv()
 
 directory_service = CompanyDirectoryService(
-    crunchbase_api_key=os.getenv("CRUNCHBASE_API_KEY"),
-    opencorporates_api_key=os.getenv("OPENCORPORATES_API_KEY"),
-    brandfetch_api_key=os.getenv("BRANDFETCH_API_KEY"),
+    brandfetch_client_id=os.getenv("BRANDFETCH_CLIENT_ID"),
 )
 
 

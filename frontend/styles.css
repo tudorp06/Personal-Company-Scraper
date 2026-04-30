@@ -200,6 +200,7 @@ body {
   gap: 12px;
   padding: 12px 14px;
   border-bottom: 1px solid var(--suggestion-border);
+  cursor: pointer;
 }
 
 .suggestion-item:last-child {
@@ -238,4 +239,188 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.hidden {
+  display: none;
+}
+
+.company-card {
+  margin-top: 16px;
+  background: var(--surface);
+  border: 1px solid var(--surface-border);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  padding: 14px;
+}
+
+.company-card-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.selected-company-logo {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  border: 1px solid var(--logo-border);
+  background: var(--logo-bg);
+  object-fit: contain;
+}
+
+.selected-company-name {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.selected-company-details {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.employee-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.employee-tab {
+  border: 1px solid var(--surface-border);
+  background: var(--bg);
+  color: var(--muted);
+  border-radius: 10px;
+  font-size: 13px;
+  padding: 10px;
+}
+
+.employee-tab.active {
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--input-border);
+  font-weight: 600;
+}
+
+.employee-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.employee-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 2px;
+  border-bottom: 1px solid var(--suggestion-border);
+  cursor: pointer;
+}
+
+.employee-row:last-child {
+  border-bottom: 0;
+}
+
+.employee-checkbox {
+  margin-top: 4px;
+}
+
+.employee-name {
+  font-weight: 600;
+  font-size: 16px;
+  margin: 0;
+}
+
+.employee-role {
+  color: var(--muted);
+  font-size: 14px;
+  margin-left: 8px;
+}
+
+.employee-email {
+  margin: 4px 0 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.employee-card {
+  margin-top: 14px;
+  background: var(--surface);
+  border: 1px solid var(--surface-border);
+  border-radius: 14px;
+  padding: 14px;
+}
+
+.employee-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.employee-card-company-logo {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid var(--logo-border);
+  background: var(--logo-bg);
+  object-fit: contain;
+}
+
+.employee-card-company-name {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.employee-card-grid {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  column-gap: 10px;
+  row-gap: 8px;
+}
+
+.employee-field-label {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.employee-field-value {
+  margin: 0;
+  font-size: 14px;
+  color: var(--muted);
+  padding: 3px 0;
+}
+
+.employee-field-highlight {
+  color: #ffffff;
+  background: linear-gradient(90deg, #4e6fff, #6c4dff);
+  border-radius: 999px;
+  padding: 5px 12px;
+  width: fit-content;
+}
+
+.favorite-button {
+  margin-top: 14px;
+  border: 1px solid var(--input-border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+}
+
+.favorite-button.is-favorite {
+  background: linear-gradient(90deg, #4e6fff, #6c4dff);
+  border-color: transparent;
+  color: #ffffff;
 }

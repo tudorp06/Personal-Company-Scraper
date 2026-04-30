@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-import urllib.error
 import urllib.parse
-import urllib.request
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -89,18 +87,17 @@ BASELINE_COMPANIES: List[CompanySuggestion] = [
 class CompanyDirectoryService:
     def __init__(
         self,
-        crunchbase_api_key: Optional[str] = None,
-        opencorporates_api_key: Optional[str] = None,
-        brandfetch_api_key: Optional[str] = None,
+        brandfetch_client_id: Optional[str] = None,
         cache_db_path: str = "company_cache.db",
+        seed_json_path: str = "seed_companies.json",
     ) -> None:
-        self.crunchbase_api_key = crunchbase_api_key
-        self.opencorporates_api_key = opencorporates_api_key
-        self.brandfetch_api_key = brandfetch_api_key
+        self.brandfetch_client_id = brandfetch_client_id
         self._logo_cache: Dict[str, Optional[str]] = {}
         self.cache_db_path = str(Path(cache_db_path))
+        self.seed_json_path = str(Path(seed_json_path))
         self._init_cache_db()
         self._seed_baseline_cache()
+        self._seed_from_json()
 
     def search(self, query: str, limit: int = 12, country: Optional[str] = None) -> List[dict]:
         query = query.strip()
@@ -178,11 +175,47 @@ class CompanyDirectoryService:
             )
         self._upsert_cache(baseline_with_logos)
 
+    def _seed_from_json(self) -> None:
+        seed_path = Path(self.seed_json_path)
+        if not seed_path.exists():
+            return
+
+        try:
+            raw = json.loads(seed_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return
+
+        if not isinstance(raw, list):
+            return
+
+        items: List[CompanySuggestion] = []
+        for entry in raw:
+            if not isinstance(entry, dict):
+                continue
+            name = entry.get("name")
+            domain = entry.get("domain")
+            if not isinstance(name, str) or not name.strip():
+                continue
+            if not isinstance(domain, str) or not domain.strip():
+                continue
+            country = entry.get("country")
+            source = entry.get("source") if isinstance(entry.get("source"), str) else "seed"
+            logo = self._resolve_logo_url(domain)
+            items.append(
+                CompanySuggestion(
+                    name=name.strip(),
+                    domain=domain.strip().lower(),
+                    country=country.strip().upper() if isinstance(country, str) and country else None,
+                    source=source,
+                    logo_url=logo,
+                )
+            )
+
+        self._upsert_cache(items)
+
     def _fetch_remote(self, query: str, limit: int, country: Optional[str]) -> List[CompanySuggestion]:
-        combined: List[CompanySuggestion] = []
-        combined.extend(self._search_crunchbase(query, limit=limit))
-        combined.extend(self._search_opencorporates(query, limit=limit, country=country))
-        return combined
+        # Paid providers removed; rely on seeded/local cache for now.
+        return []
 
     def _search_cache(self, query: str, limit: int, country: Optional[str]) -> List[CompanySuggestion]:
         normalized = query.lower()
@@ -258,87 +291,6 @@ class CompanyDirectoryService:
                     ),
                 )
 
-    def _search_crunchbase(self, query: str, limit: int) -> List[CompanySuggestion]:
-        if not self.crunchbase_api_key:
-            return []
-
-        endpoint = "https://api.crunchbase.com/api/v4/searches/organizations"
-        payload = {
-            "field_ids": ["identifier", "name", "website_url", "location_identifiers"],
-            "query": [{"type": "predicate", "field_id": "name", "operator_id": "contains", "values": [query]}],
-            "limit": limit,
-        }
-        url = f"{endpoint}?user_key={urllib.parse.quote(self.crunchbase_api_key)}"
-
-        try:
-            request = urllib.request.Request(
-                url,
-                method="POST",
-                data=json.dumps(payload).encode("utf-8"),
-                headers={"Content-Type": "application/json"},
-            )
-            with urllib.request.urlopen(request, timeout=8) as response:
-                body = json.loads(response.read().decode("utf-8"))
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
-            return []
-
-        entities = body.get("entities", [])
-        results: List[CompanySuggestion] = []
-        for entity in entities:
-            name = entity.get("name")
-            if not name:
-                continue
-            website = entity.get("website_url")
-            domain = self._extract_domain(website)
-            country = self._extract_country_from_location_identifiers(entity.get("location_identifiers", []))
-            results.append(
-                CompanySuggestion(
-                    name=name,
-                    domain=domain,
-                    country=country,
-                    source="crunchbase",
-                )
-            )
-        return results
-
-    def _search_opencorporates(
-        self, query: str, limit: int, country: Optional[str] = None
-    ) -> List[CompanySuggestion]:
-        query_params = {"q": query, "per_page": str(limit)}
-        if self.opencorporates_api_key:
-            query_params["api_token"] = self.opencorporates_api_key
-        if country:
-            query_params["country_code"] = country.lower()
-
-        endpoint = "https://api.opencorporates.com/v0.4/companies/search"
-        url = f"{endpoint}?{urllib.parse.urlencode(query_params)}"
-
-        try:
-            request = urllib.request.Request(url, method="GET")
-            with urllib.request.urlopen(request, timeout=8) as response:
-                body = json.loads(response.read().decode("utf-8"))
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
-            return []
-
-        companies = body.get("results", {}).get("companies", [])
-        results: List[CompanySuggestion] = []
-        for item in companies:
-            company = item.get("company", {})
-            name = company.get("name")
-            if not name:
-                continue
-            jurisdiction = company.get("jurisdiction_code")
-            domain = self._extract_domain(company.get("homepage_url"))
-            results.append(
-                CompanySuggestion(
-                    name=name,
-                    domain=domain,
-                    country=jurisdiction.upper() if isinstance(jurisdiction, str) else None,
-                    source="opencorporates",
-                )
-            )
-        return results
-
     def _resolve_logo_url(self, domain: Optional[str]) -> Optional[str]:
         if not domain:
             return None
@@ -346,36 +298,16 @@ class CompanyDirectoryService:
         if key in self._logo_cache:
             return self._logo_cache[key]
 
-        logo_url: Optional[str] = None
-        if self.brandfetch_api_key:
-            brandfetch = self._brandfetch_logo_url(domain)
-            if brandfetch:
-                logo_url = brandfetch
-
-        if not logo_url:
-            logo_url = f"https://logo.clearbit.com/{domain}"
+        logo_url = self._brandfetch_cdn_logo_url(domain)
 
         self._logo_cache[key] = logo_url
         return logo_url
 
-    def _brandfetch_logo_url(self, domain: str) -> Optional[str]:
-        url = f"https://api.brandfetch.io/v2/brands/{urllib.parse.quote(domain)}"
-        headers = {"Authorization": f"Bearer {self.brandfetch_api_key}"}
-        try:
-            request = urllib.request.Request(url, headers=headers, method="GET")
-            with urllib.request.urlopen(request, timeout=8) as response:
-                body = json.loads(response.read().decode("utf-8"))
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
-            return None
-
-        logos = body.get("logos", [])
-        for logo in logos:
-            formats = logo.get("formats", [])
-            for fmt in formats:
-                src = fmt.get("src")
-                if isinstance(src, str) and src.startswith("http"):
-                    return src
-        return None
+    def _brandfetch_cdn_logo_url(self, domain: str) -> str:
+        base = f"https://cdn.brandfetch.io/{urllib.parse.quote(domain)}"
+        if self.brandfetch_client_id:
+            return f"{base}?c={urllib.parse.quote(self.brandfetch_client_id)}"
+        return base
 
     def _dedupe(self, companies: List[CompanySuggestion]) -> List[CompanySuggestion]:
         seen: Dict[str, CompanySuggestion] = {}

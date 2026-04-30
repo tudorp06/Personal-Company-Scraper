@@ -1,22 +1,44 @@
 const input = document.getElementById("lead-search");
 const suggestions = document.getElementById("suggestions");
 const themeToggle = document.getElementById("theme-toggle");
+const companyCard = document.getElementById("company-card");
+const selectedCompanyLogo = document.getElementById("selected-company-logo");
+const selectedCompanyName = document.getElementById("selected-company-name");
+const selectedCompanyDetails = document.getElementById("selected-company-details");
+const employeeList = document.getElementById("employee-list");
+const employeeCard = document.getElementById("employee-card");
+const employeeCardCompanyLogo = document.getElementById("employee-card-company-logo");
+const employeeCardCompanyName = document.getElementById("employee-card-company-name");
+const employeeCardFirstName = document.getElementById("employee-card-first-name");
+const employeeCardLastName = document.getElementById("employee-card-last-name");
+const employeeCardEmail = document.getElementById("employee-card-email");
+const employeeCardRole = document.getElementById("employee-card-role");
+const employeeCardCompany = document.getElementById("employee-card-company");
+const employeeCardLocation = document.getElementById("employee-card-location");
+const favoriteButton = document.getElementById("favorite-button");
 let activeController = null;
 let debounceTimer = null;
+let currentSuggestions = [];
+let selectedCompanyKey = null;
+let selectedCompany = null;
+let currentEmployees = [];
+let selectedEmployee = null;
 const THEME_STORAGE_KEY = "ui_theme_preference";
+const FAVORITES_STORAGE_KEY = "favorite_employees";
+const BRANDFETCH_CLIENT_ID = "1id6iCSRkbc4cqe2MBu";
 const FALLBACK_COMPANIES = [
-  { name: "AROBS", domain: "arobs.com", country: "RO", source: "fallback", logo_url: "https://logo.clearbit.com/arobs.com" },
-  { name: "NTT DATA Romania", domain: "ro.nttdata.com", country: "RO", source: "fallback", logo_url: "https://logo.clearbit.com/nttdata.com" },
-  { name: "Fortech", domain: "fortech.ro", country: "RO", source: "fallback", logo_url: "https://logo.clearbit.com/fortech.ro" },
-  { name: "YouTube", domain: "youtube.com", country: "US", source: "fallback", logo_url: "https://logo.clearbit.com/youtube.com" },
-  { name: "Yahoo", domain: "yahoo.com", country: "US", source: "fallback", logo_url: "https://logo.clearbit.com/yahoo.com" },
-  { name: "Yonder", domain: "yonder.com", country: "GB", source: "fallback", logo_url: "https://logo.clearbit.com/yonder.com" },
-  { name: "Yamaha", domain: "yamaha.com", country: "JP", source: "fallback", logo_url: "https://logo.clearbit.com/yamaha.com" },
-  { name: "UiPath", domain: "uipath.com", country: "RO", source: "fallback", logo_url: "https://logo.clearbit.com/uipath.com" },
-  { name: "Bitdefender", domain: "bitdefender.com", country: "RO", source: "fallback", logo_url: "https://logo.clearbit.com/bitdefender.com" },
-  { name: "Endava", domain: "endava.com", country: "RO", source: "fallback", logo_url: "https://logo.clearbit.com/endava.com" },
-  { name: "Google", domain: "google.com", country: "US", source: "fallback", logo_url: "https://logo.clearbit.com/google.com" },
-  { name: "Stripe", domain: "stripe.com", country: "US", source: "fallback", logo_url: "https://logo.clearbit.com/stripe.com" },
+  { name: "AROBS", domain: "arobs.com", country: "RO", source: "fallback", logo_url: "" },
+  { name: "NTT DATA Romania", domain: "ro.nttdata.com", country: "RO", source: "fallback", logo_url: "" },
+  { name: "Fortech", domain: "fortech.ro", country: "RO", source: "fallback", logo_url: "" },
+  { name: "YouTube", domain: "youtube.com", country: "US", source: "fallback", logo_url: "" },
+  { name: "Yahoo", domain: "yahoo.com", country: "US", source: "fallback", logo_url: "" },
+  { name: "Yonder", domain: "yonder.com", country: "GB", source: "fallback", logo_url: "" },
+  { name: "Yamaha", domain: "yamaha.com", country: "JP", source: "fallback", logo_url: "" },
+  { name: "UiPath", domain: "uipath.com", country: "RO", source: "fallback", logo_url: "" },
+  { name: "Bitdefender", domain: "bitdefender.com", country: "RO", source: "fallback", logo_url: "" },
+  { name: "Endava", domain: "endava.com", country: "RO", source: "fallback", logo_url: "" },
+  { name: "Google", domain: "google.com", country: "US", source: "fallback", logo_url: "" },
+  { name: "Stripe", domain: "stripe.com", country: "US", source: "fallback", logo_url: "" },
 ];
 
 function applyTheme(theme) {
@@ -50,7 +72,7 @@ function createSuggestionItem(company) {
 
   const logo = document.createElement("img");
   logo.className = "company-logo";
-  logo.src = company.logo_url || "";
+  logo.src = company.logo_url || brandfetchLogoUrl(company.domain);
   logo.alt = `${company.name} logo`;
   logo.loading = "lazy";
 
@@ -74,10 +96,157 @@ function createSuggestionItem(company) {
 }
 
 function renderSuggestions(companies) {
+  currentSuggestions = companies;
   suggestions.innerHTML = "";
-  companies.forEach((company) => {
-    suggestions.appendChild(createSuggestionItem(company));
+  companies.forEach((company, index) => {
+    const row = createSuggestionItem(company);
+    row.dataset.index = String(index);
+    suggestions.appendChild(row);
   });
+}
+
+function buildCompanyDomain(company) {
+  if (company.domain) return company.domain;
+  return `${company.name.toLowerCase().replace(/[^a-z0-9]/g, "")}.company`;
+}
+
+function brandfetchLogoUrl(domain) {
+  if (!domain) return "";
+  return `https://cdn.brandfetch.io/${encodeURIComponent(domain)}?c=${encodeURIComponent(BRANDFETCH_CLIENT_ID)}`;
+}
+
+function employeeMocks(companyName) {
+  const normalized = companyName.toLowerCase();
+  const parts = companyName.split(" ");
+  const first = parts[0] || companyName;
+  const companyDomain = companyName.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const redactedEmail = `{redacted}@${companyDomain}.company`;
+  const romanianCompany =
+    normalized.includes("fortech") ||
+    normalized.includes("arobs") ||
+    normalized.includes("uipath") ||
+    normalized.includes("bitdefender") ||
+    normalized.includes("endava") ||
+    normalized.includes("ntt data romania");
+
+  if (romanianCompany) {
+    return [
+      { id: `${first}-tudor`, firstName: "Tudor", lastName: "Popescu", role: "Technical Partnerships Manager", email: redactedEmail, location: "Cluj-Napoca, Romania" },
+      { id: `${first}-razvan`, firstName: "Razvan", lastName: "Ionescu", role: "Director of Implementation", email: redactedEmail, location: "Bucharest, Romania" },
+      { id: `${first}-andrei`, firstName: "Andrei", lastName: "Marinescu", role: "Solutions Engineering Lead", email: redactedEmail, location: "Timisoara, Romania" },
+      { id: `${first}-calin`, firstName: "Calin", lastName: "Vaduva", role: "Head of Strategic Accounts", email: redactedEmail, location: "Oradea, Romania" },
+      { id: `${first}-voicu`, firstName: "Voicu", lastName: "Oprean", role: "Executive Advisor - Growth", email: redactedEmail, location: "Cluj-Napoca, Romania" },
+    ];
+  }
+  return [
+    { id: `${first}-heather`, firstName: "Heather", lastName: "Taylor", role: "User Research Manager", email: redactedEmail, location: "Berlin, Germany" },
+    { id: `${first}-brandon`, firstName: "Brandon", lastName: "Anders", role: "Director of Partner Engineering", email: redactedEmail, location: "London, UK" },
+    { id: `${first}-sara`, firstName: "Sara", lastName: "Stone", role: "Director of Creator Partnerships", email: redactedEmail, location: "Paris, France" },
+    { id: `${first}-william`, firstName: "William", lastName: "Lane", role: "Director of Analytics", email: redactedEmail, location: "Cluj-Napoca, Romania" },
+    { id: `${first}-tim`, firstName: "Tim", lastName: "Keller", role: "Director of Partnerships", email: redactedEmail, location: "Madrid, Spain" },
+  ];
+}
+
+function favoritesMap() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(FAVORITES_STORAGE_KEY) || "{}");
+    return typeof parsed === "object" && parsed ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveFavorite(employee, company) {
+  const map = favoritesMap();
+  map[employee.id] = {
+    employeeId: employee.id,
+    firstName: employee.firstName,
+    lastName: employee.lastName,
+    role: employee.role,
+    email: employee.email,
+    location: employee.location,
+    companyName: company.name,
+    companyDomain: buildCompanyDomain(company),
+    companyLogo: company.logo_url || brandfetchLogoUrl(company.domain),
+    savedAt: new Date().toISOString(),
+  };
+  localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(map));
+}
+
+function isFavorite(employeeId) {
+  return Boolean(favoritesMap()[employeeId]);
+}
+
+function updateFavoriteButton(employee) {
+  if (!employee) {
+    favoriteButton.classList.remove("is-favorite");
+    favoriteButton.textContent = "Add to Favorites";
+    return;
+  }
+  if (isFavorite(employee.id)) {
+    favoriteButton.classList.add("is-favorite");
+    favoriteButton.textContent = "Saved to Favorites";
+  } else {
+    favoriteButton.classList.remove("is-favorite");
+    favoriteButton.textContent = "Add to Favorites";
+  }
+}
+
+function renderEmployeeCard(employee, company) {
+  selectedEmployee = employee;
+  employeeCardCompanyLogo.src = company.logo_url || brandfetchLogoUrl(company.domain);
+  employeeCardCompanyName.textContent = company.name;
+  employeeCardFirstName.textContent = employee.firstName;
+  employeeCardLastName.textContent = employee.lastName;
+  employeeCardEmail.textContent = employee.email;
+  employeeCardRole.textContent = employee.role;
+  employeeCardCompany.textContent = company.name;
+  employeeCardLocation.textContent = employee.location;
+  updateFavoriteButton(employee);
+  employeeCard.classList.remove("hidden");
+}
+
+function renderEmployeeRows(company) {
+  employeeList.innerHTML = "";
+  currentEmployees = employeeMocks(company.name);
+  currentEmployees.forEach((employee, index) => {
+    const row = document.createElement("li");
+    row.className = "employee-row";
+    row.dataset.index = String(index);
+    row.innerHTML = `
+      <input class="employee-checkbox" type="checkbox" />
+      <div>
+        <p class="employee-name">${employee.firstName} ${employee.lastName}<span class="employee-role">| ${employee.role}</span></p>
+        <p class="employee-email">${employee.email}</p>
+      </div>
+    `;
+    employeeList.appendChild(row);
+  });
+}
+
+function companyKey(company) {
+  return `${company.name}|${company.domain || ""}`;
+}
+
+function toggleCompanyCard(company) {
+  const key = companyKey(company);
+  if (selectedCompanyKey === key) {
+    selectedCompanyKey = null;
+    selectedCompany = null;
+    companyCard.classList.add("hidden");
+    employeeCard.classList.add("hidden");
+    return;
+  }
+
+  selectedCompanyKey = key;
+  selectedCompany = company;
+  selectedCompanyLogo.src = company.logo_url || brandfetchLogoUrl(company.domain);
+  selectedCompanyLogo.alt = `${company.name} logo`;
+  selectedCompanyName.textContent = company.name;
+  selectedCompanyDetails.textContent = [company.domain, company.country, company.source].filter(Boolean).join(" • ");
+  renderEmployeeRows(company);
+  employeeCard.classList.add("hidden");
+  companyCard.classList.remove("hidden");
 }
 
 function fallbackMatches(query) {
@@ -127,5 +296,26 @@ function scheduleSearch() {
 }
 
 input.addEventListener("input", scheduleSearch);
+suggestions.addEventListener("click", (event) => {
+  const row = event.target.closest(".suggestion-item");
+  if (!row) return;
+  const index = Number(row.dataset.index);
+  const company = currentSuggestions[index];
+  if (!company) return;
+  toggleCompanyCard(company);
+});
+employeeList.addEventListener("click", (event) => {
+  const row = event.target.closest(".employee-row");
+  if (!row || !selectedCompany) return;
+  const index = Number(row.dataset.index);
+  const employee = currentEmployees[index];
+  if (!employee) return;
+  renderEmployeeCard(employee, selectedCompany);
+});
+favoriteButton?.addEventListener("click", () => {
+  if (!selectedEmployee || !selectedCompany) return;
+  saveFavorite(selectedEmployee, selectedCompany);
+  updateFavoriteButton(selectedEmployee);
+});
 themeToggle?.addEventListener("click", toggleTheme);
 applyTheme(getInitialTheme());
