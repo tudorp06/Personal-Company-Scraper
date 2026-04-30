@@ -1,6 +1,6 @@
 # Personal Company Scraper
 
-Personal Company Scraper is a discovery platform designed to help:
+Linkedln Scraper (BETA) is a lead discovery platform designed to help:
 
 - young startup founders who need the right internal contact points inside companies
 - job seekers who want to find the most relevant people for CV submission in niche departments
@@ -13,7 +13,7 @@ This project helps users:
 
 - track companies they care about
 - search companies quickly with a live typeahead interface
-- surface relevant organizations across Romanian, European, and global markets
+- surface relevant organizations across European and global markets
 - rank internal profiles by a valuable-employer score
 - prioritize outreach with clear alert levels
 
@@ -61,7 +61,7 @@ This project is built with a public-data and provider-API approach.
 ## Tech Stack
 
 - **Backend:** Python
-- **Storage:** SQLite (`app.db`, `company_cache.db`)
+- **Storage:** SQLite
 - **Frontend:** HTML/CSS/JavaScript
 - **Server:** lightweight Python HTTP server with JSON API endpoints
 
@@ -69,7 +69,7 @@ This project is built with a public-data and provider-API approach.
 
 1. Create and fill `.env` (or let `run.ps1` generate from `.env.example`).
 2. Add your provider key:
-   - `BRANDFETCH_CLIENT_ID`
+   - `BRANDFETCH_CLIENT_ID`  ## This one is used for the Company Logos API provided by Brandfetch -> it has a 500.000 free credit plan.
 3. Run:
 
 ```powershell
