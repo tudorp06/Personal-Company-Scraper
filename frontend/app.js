@@ -7,6 +7,11 @@ const registerForm = document.getElementById("register-form");
 const loginForm = document.getElementById("login-form");
 const authMessage = document.getElementById("auth-message");
 const logoutButton = document.getElementById("logout-button");
+const dashboardToggleButton = document.getElementById("dashboard-toggle");
+const homeView = document.getElementById("home-view");
+const dashboardView = document.getElementById("dashboard-view");
+const savedLeadsList = document.getElementById("saved-leads-list");
+const refreshSavedLeadsButton = document.getElementById("refresh-saved-leads");
 const suggestions = document.getElementById("suggestions");
 const themeToggle = document.getElementById("theme-toggle");
 const companyCard = document.getElementById("company-card");
@@ -36,6 +41,7 @@ let currentEmployees = [];
 let selectedEmployee = null;
 let activeEmployeeView = "people";
 let companyInsights = { employees: [], email_terminations: [] };
+let activeMainView = "home";
 const THEME_STORAGE_KEY = "ui_theme_preference";
 const FAVORITES_STORAGE_KEY = "favorite_employees";
 const BRANDFETCH_CLIENT_ID = "1id6iCSRkbc4cqe2MBu";
@@ -62,6 +68,7 @@ function showAuthScreen() {
 function showAppShell() {
   authScreen?.classList.add("hidden");
   appShell?.classList.remove("hidden");
+  setMainView("home");
 }
 
 function setAuthTab(mode) {
@@ -255,6 +262,53 @@ async function saveFavoriteToServer(employee, company) {
     }),
   });
   return response.ok;
+}
+
+async function loadSavedLeads() {
+  if (!savedLeadsList) return;
+  savedLeadsList.innerHTML = "";
+  try {
+    const response = await fetch("/api/user/saved-employers");
+    if (!response.ok) {
+      return;
+    }
+    const payload = await response.json();
+    const items = Array.isArray(payload.items) ? payload.items : [];
+    if (items.length === 0) {
+      const empty = document.createElement("li");
+      empty.className = "saved-lead-item";
+      empty.innerHTML = `<p class="saved-lead-meta">No saved leads yet.</p>`;
+      savedLeadsList.appendChild(empty);
+      return;
+    }
+    items.forEach((item) => {
+      const row = document.createElement("li");
+      row.className = "saved-lead-item";
+      row.innerHTML = `
+        <p class="saved-lead-title">${item.employer_name} · ${item.employer_role}</p>
+        <p class="saved-lead-meta">${item.company_name} · score ${item.lead_score}</p>
+      `;
+      savedLeadsList.appendChild(row);
+    });
+  } catch {
+    const error = document.createElement("li");
+    error.className = "saved-lead-item";
+    error.innerHTML = `<p class="saved-lead-meta">Could not load saved leads.</p>`;
+    savedLeadsList.appendChild(error);
+  }
+}
+
+function setMainView(view) {
+  activeMainView = view === "dashboard" ? "dashboard" : "home";
+  homeView?.classList.toggle("hidden", activeMainView !== "home");
+  dashboardView?.classList.toggle("hidden", activeMainView !== "dashboard");
+  dashboardToggleButton?.classList.toggle("is-active", activeMainView === "dashboard");
+  if (dashboardToggleButton) {
+    dashboardToggleButton.textContent = activeMainView === "dashboard" ? "Home" : "Saved Leads";
+  }
+  if (activeMainView === "dashboard") {
+    void loadSavedLeads();
+  }
 }
 
 function isFavorite(employeeId) {
@@ -536,7 +590,17 @@ favoriteButton?.addEventListener("click", async () => {
     // Fallback for users not logged in yet.
     saveFavorite(selectedEmployee, selectedCompany);
   }
+  if (savedToServer) {
+    void loadSavedLeads();
+  }
   updateFavoriteButton(selectedEmployee);
+});
+refreshSavedLeadsButton?.addEventListener("click", () => {
+  void loadSavedLeads();
+});
+dashboardToggleButton?.addEventListener("click", () => {
+  const nextView = activeMainView === "home" ? "dashboard" : "home";
+  setMainView(nextView);
 });
 themeToggle?.addEventListener("click", toggleTheme);
 showRegisterButton?.addEventListener("click", () => setAuthTab("register"));

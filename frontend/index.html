@@ -48,6 +48,7 @@
           <p class="version">Open-source build by an aspiring AI engineer.</p>
         </div>
         <div class="nav-actions">
+          <button id="dashboard-toggle" class="dashboard-toggle" type="button">Saved Leads</button>
           <button id="logout-button" class="logout-button" type="button">Logout</button>
           <button
             id="theme-toggle"
@@ -61,7 +62,7 @@
         </div>
       </nav>
       <main class="content">
-        <div class="search-area">
+        <section id="home-view" class="search-area">
           <p class="search-label">Company Discovery</p>
           <div class="search-shell">
           <span class="search-icon search-business-icon" aria-hidden="true">in</span>
@@ -120,7 +121,14 @@
               <button id="favorite-button" type="button" class="favorite-button">Add to Favorites</button>
             </article>
           </section>
-        </div>
+        </section>
+        <section id="dashboard-view" class="dashboard-view hidden">
+          <div class="saved-leads-header">
+            <p class="search-label">Saved Leads Dashboard</p>
+            <button id="refresh-saved-leads" class="refresh-saved-leads" type="button">Refresh</button>
+          </div>
+          <ul id="saved-leads-list" class="saved-leads-list"></ul>
+        </section>
       </main>
     </div>
     <script src="/frontend/app.js"></script>
