@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="/frontend/styles.css" />
   </head>
   <body>
-    <section id="auth-screen" class="auth-screen">
+    <section id="auth-screen" class="auth-screen hidden">
       <div class="auth-card">
         <div class="brand-row">
           <span class="brand-logo" aria-hidden="true">in</span>
@@ -50,6 +50,16 @@
         <div class="nav-actions">
           <button id="dashboard-toggle" class="dashboard-toggle" type="button">Saved Leads</button>
           <button id="contrast-toggle" class="dashboard-toggle" type="button">Contrast: Default</button>
+          <button
+            id="notification-bell"
+            class="theme-toggle notification-bell"
+            type="button"
+            aria-label="Open lead updates"
+            title="Lead updates"
+          >
+            <span class="notification-bell-icon" aria-hidden="true">🔔</span>
+            <span id="notification-bell-count" class="notification-bell-count hidden">0</span>
+          </button>
           <button id="logout-button" class="logout-button" type="button">Logout</button>
           <button
             id="theme-toggle"
@@ -60,11 +70,20 @@
           >
             <span class="toggle-icon" aria-hidden="true">◐</span>
           </button>
+          <button
+            id="profile-toggle"
+            class="theme-toggle profile-toggle-icon"
+            type="button"
+            aria-label="Open profile"
+            title="Open profile"
+          >
+            <img class="profile-icon-image" src="/frontend/user-icon.svg" alt="" aria-hidden="true" />
+          </button>
         </div>
       </nav>
       <main class="content">
         <section id="home-view" class="search-area">
-          <p class="search-label">Company Discovery</p>
+          <p class="search-label">COMPANY SEARCH</p>
           <div class="search-shell">
           <span class="search-icon search-business-icon" aria-hidden="true">in</span>
           <input
@@ -89,16 +108,20 @@
               <button type="button" class="employee-tab active" data-view="people">People</button>
               <button type="button" class="employee-tab" data-view="valuable">Valuable Leads</button>
               <button type="button" class="employee-tab" data-view="addresses">Adresses</button>
+              <button type="button" class="employee-tab" data-view="outreach">Outreach Plan</button>
             </div>
 
             <ul id="employee-list" class="employee-list"></ul>
             <section id="valuable-leads-panel" class="valuable-leads-panel hidden"></section>
             <section id="addresses-panel" class="addresses-panel hidden"></section>
+            <section id="outreach-plan-panel" class="valuable-leads-panel hidden"></section>
 
             <article id="employee-card" class="employee-card hidden" aria-live="polite">
               <header class="employee-card-header">
                 <img id="employee-card-company-logo" class="employee-card-company-logo" alt="Company logo" />
-                <p id="employee-card-company-name" class="employee-card-company-name"></p>
+                <div class="employee-card-heading">
+                  <p id="employee-card-company-name" class="employee-card-company-name"></p>
+                </div>
               </header>
               <div class="employee-card-grid">
                 <p class="employee-field-label">First Name</p>
@@ -112,6 +135,14 @@
 
                 <p class="employee-field-label">Role</p>
                 <p id="employee-card-role" class="employee-field-value"></p>
+
+                <p class="employee-field-label">Path</p>
+                <p class="employee-field-value">
+                  <span class="employee-role-badge">
+                    <span id="employee-card-role-icon" class="employee-role-icon" aria-hidden="true">●</span>
+                    <span id="employee-card-role-badge" class="employee-role-badge-text"></span>
+                  </span>
+                </p>
 
                 <p class="employee-field-label">Company</p>
                 <p id="employee-card-company" class="employee-field-value employee-field-highlight"></p>
@@ -133,6 +164,10 @@
             </div>
             <p id="goal-progress-text" class="saved-leads-status">0 / 10 completed this week</p>
           </section>
+          <section class="goal-tracker-card">
+            <p class="search-label">Target Preferences</p>
+            <p id="dashboard-preferences-summary" class="saved-leads-status">No preferences saved yet.</p>
+          </section>
           <div class="saved-leads-header">
             <p class="search-label">Saved Leads Dashboard</p>
             <div class="saved-leads-actions">
@@ -144,6 +179,58 @@
           <div id="sector-filters" class="sector-filters"></div>
           <p id="saved-leads-status" class="saved-leads-status hidden"></p>
           <ul id="saved-leads-list" class="saved-leads-list"></ul>
+        </section>
+        <section id="profile-view" class="dashboard-view hidden">
+          <div class="saved-leads-header">
+            <p class="search-label">User Profile</p>
+          </div>
+          <div class="profile-card-grid">
+            <p class="employee-field-label">Display Name</p>
+            <p id="profile-display-name" class="employee-field-value"></p>
+            <p class="employee-field-label">Email</p>
+            <p id="profile-email" class="employee-field-value"></p>
+            <p class="employee-field-label">Account Role</p>
+            <p id="profile-role" class="employee-field-value"></p>
+          </div>
+          <div class="goal-tracker-card">
+            <p class="search-label">CV Section</p>
+            <div class="goal-tracker-row">
+              <label for="profile-target-sectors" class="goal-label">Target sectors</label>
+              <input id="profile-target-sectors" class="goal-input profile-input-wide" type="text" placeholder="BigTech, Fintech, CyberSec" />
+            </div>
+            <div class="goal-tracker-row">
+              <label for="profile-target-company-size" class="goal-label">Target company size</label>
+              <input id="profile-target-company-size" class="goal-input profile-input-wide" type="text" placeholder="Startup, Mid-size, Enterprise" />
+            </div>
+            <div class="goal-tracker-row">
+              <label for="profile-target-countries" class="goal-label">Target countries</label>
+              <input id="profile-target-countries" class="goal-input profile-input-wide" type="text" placeholder="US, UK, RO" />
+            </div>
+            <div class="goal-tracker-row">
+              <label for="profile-target-work-mode" class="goal-label">Target work mode</label>
+              <input id="profile-target-work-mode" class="goal-input profile-input-wide" type="text" placeholder="Remote / Hybrid / On-site" />
+            </div>
+            <div class="saved-leads-actions">
+              <button id="save-preferences-button" class="refresh-saved-leads" type="button">Save Picks</button>
+            </div>
+            <p id="profile-preferences-preview" class="saved-leads-status">No picks saved yet.</p>
+            <div class="goal-tracker-row">
+              <label for="profile-headline" class="goal-label">Professional headline</label>
+              <input id="profile-headline" class="goal-input profile-input-wide" type="text" placeholder="e.g. AI Engineer focused on startup GTM" />
+            </div>
+            <div class="goal-tracker-row">
+              <label for="profile-cv-text" class="goal-label">Paste CV text</label>
+            </div>
+            <textarea id="profile-cv-text" class="profile-cv-textarea" placeholder="Paste your CV here..."></textarea>
+            <div class="saved-leads-actions">
+              <button id="save-profile-button" class="refresh-saved-leads" type="button">Save Profile & CV</button>
+            </div>
+          </div>
+          <section class="lead-readiness-card">
+            <p class="lead-readiness-title">CV Preview</p>
+            <p id="profile-headline-preview" class="lead-role"></p>
+            <pre id="profile-cv-preview" class="profile-cv-preview"></pre>
+          </section>
         </section>
       </main>
     </div>
@@ -157,6 +244,7 @@
         </div>
       </article>
     </div>
+    <section id="booster-toast-stack" class="booster-toast-stack" aria-live="polite" aria-atomic="false"></section>
     <script src="/frontend/app.js"></script>
   </body>
 </html>

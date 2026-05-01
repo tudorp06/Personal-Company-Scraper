@@ -105,12 +105,63 @@ class Repository:
                     FOREIGN KEY (user_id) REFERENCES users(id)
                 );
 
+                CREATE TABLE IF NOT EXISTS user_profiles (
+                    user_id TEXT PRIMARY KEY,
+                    headline TEXT,
+                    cv_text TEXT,
+                    target_sectors TEXT,
+                    target_company_size TEXT,
+                    target_countries TEXT,
+                    target_work_mode TEXT,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (user_id) REFERENCES users(id)
+                );
+
+                CREATE TABLE IF NOT EXISTS user_lead_notes (
+                    user_id TEXT NOT NULL,
+                    saved_employer_id TEXT NOT NULL,
+                    note_text TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (user_id, saved_employer_id),
+                    FOREIGN KEY (user_id) REFERENCES users(id)
+                );
+
+                CREATE TABLE IF NOT EXISTS user_lead_contacted (
+                    user_id TEXT NOT NULL,
+                    saved_employer_id TEXT NOT NULL,
+                    is_contacted INTEGER NOT NULL DEFAULT 0,
+                    contacted_at TEXT,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (user_id, saved_employer_id),
+                    FOREIGN KEY (user_id) REFERENCES users(id)
+                );
+
+                CREATE TABLE IF NOT EXISTS user_lead_notifications (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    saved_employer_id TEXT NOT NULL,
+                    event_key TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    reason TEXT NOT NULL,
+                    cta_text TEXT NOT NULL,
+                    company_name TEXT NOT NULL,
+                    employer_name TEXT NOT NULL,
+                    is_read INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    read_at TEXT,
+                    FOREIGN KEY (user_id) REFERENCES users(id)
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_employees_company ON employees(company_id);
                 CREATE INDEX IF NOT EXISTS idx_leads_company_status ON leads(company_id, status);
                 CREATE INDEX IF NOT EXISTS idx_saved_employers_user ON user_saved_employers(user_id, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_lead_contacted_user ON user_lead_contacted(user_id, updated_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_lead_notifications_user ON user_lead_notifications(user_id, created_at DESC);
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_lead_notifications_event ON user_lead_notifications(user_id, event_key);
                 """
             )
             self._ensure_department_productivity_column(conn)
+            self._ensure_user_profile_columns(conn)
 
     def _ensure_department_productivity_column(self, conn: sqlite3.Connection) -> None:
         columns = conn.execute("PRAGMA table_info(employees)").fetchall()
@@ -122,6 +173,20 @@ class Repository:
                 ADD COLUMN department_productivity_score REAL NOT NULL DEFAULT 0
                 """
             )
+
+    def _ensure_user_profile_columns(self, conn: sqlite3.Connection) -> None:
+        columns = conn.execute("PRAGMA table_info(user_profiles)").fetchall()
+        column_names = {row["name"] for row in columns}
+        additions = [
+            ("target_sectors", "TEXT"),
+            ("target_company_size", "TEXT"),
+            ("target_countries", "TEXT"),
+            ("target_work_mode", "TEXT"),
+        ]
+        for column_name, column_type in additions:
+            if column_name in column_names:
+                continue
+            conn.execute(f"ALTER TABLE user_profiles ADD COLUMN {column_name} {column_type}")
 
     def add_company(self, company: Company) -> None:
         with self._connect() as conn:
@@ -386,6 +451,219 @@ class Repository:
                 """,
                 (user_id, saved_employer_id),
             )
+
+    def get_user_profile(self, user_id: str) -> dict:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT headline, cv_text, target_sectors, target_company_size, target_countries, target_work_mode, updated_at
+                FROM user_profiles
+                WHERE user_id = ?
+                """,
+                (user_id,),
+            ).fetchone()
+        if not row:
+            return {
+                "headline": "",
+                "cv_text": "",
+                "target_sectors": "",
+                "target_company_size": "",
+                "target_countries": "",
+                "target_work_mode": "",
+                "updated_at": None,
+            }
+        return dict(row)
+
+    def upsert_user_profile(
+        self,
+        user_id: str,
+        headline: Optional[str],
+        cv_text: Optional[str],
+        target_sectors: Optional[str],
+        target_company_size: Optional[str],
+        target_countries: Optional[str],
+        target_work_mode: Optional[str],
+    ) -> None:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO user_profiles (
+                    user_id, headline, cv_text, target_sectors, target_company_size, target_countries, target_work_mode, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    headline = excluded.headline,
+                    cv_text = excluded.cv_text,
+                    target_sectors = excluded.target_sectors,
+                    target_company_size = excluded.target_company_size,
+                    target_countries = excluded.target_countries,
+                    target_work_mode = excluded.target_work_mode,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    user_id,
+                    (headline or "").strip(),
+                    (cv_text or "").strip(),
+                    (target_sectors or "").strip(),
+                    (target_company_size or "").strip(),
+                    (target_countries or "").strip(),
+                    (target_work_mode or "").strip(),
+                    now_iso,
+                ),
+            )
+
+    def list_user_lead_notes(self, user_id: str) -> List[dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT saved_employer_id, note_text, updated_at
+                FROM user_lead_notes
+                WHERE user_id = ?
+                ORDER BY updated_at DESC
+                """,
+                (user_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def upsert_user_lead_note(self, user_id: str, saved_employer_id: str, note_text: str) -> None:
+        cleaned = (note_text or "").strip()
+        with self._connect() as conn:
+            if not cleaned:
+                conn.execute(
+                    "DELETE FROM user_lead_notes WHERE user_id = ? AND saved_employer_id = ?",
+                    (user_id, saved_employer_id),
+                )
+                return
+            now_iso = datetime.now(timezone.utc).isoformat()
+            conn.execute(
+                """
+                INSERT INTO user_lead_notes (user_id, saved_employer_id, note_text, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(user_id, saved_employer_id) DO UPDATE SET
+                    note_text = excluded.note_text,
+                    updated_at = excluded.updated_at
+                """,
+                (user_id, saved_employer_id, cleaned, now_iso),
+            )
+
+    def set_user_lead_contacted(self, user_id: str, saved_employer_id: str, is_contacted: bool) -> None:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        contacted_at = now_iso if is_contacted else None
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO user_lead_contacted (user_id, saved_employer_id, is_contacted, contacted_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(user_id, saved_employer_id) DO UPDATE SET
+                    is_contacted = excluded.is_contacted,
+                    contacted_at = excluded.contacted_at,
+                    updated_at = excluded.updated_at
+                """,
+                (user_id, saved_employer_id, int(bool(is_contacted)), contacted_at, now_iso),
+            )
+
+    def list_user_lead_contacted(self, user_id: str) -> List[dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT saved_employer_id, is_contacted, contacted_at, updated_at
+                FROM user_lead_contacted
+                WHERE user_id = ?
+                ORDER BY updated_at DESC
+                """,
+                (user_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def create_user_lead_notification(
+        self,
+        notification_id: str,
+        user_id: str,
+        saved_employer_id: str,
+        event_key: str,
+        title: str,
+        reason: str,
+        cta_text: str,
+        company_name: str,
+        employer_name: str,
+    ) -> bool:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        with self._connect() as conn:
+            exists = conn.execute(
+                "SELECT 1 FROM user_lead_notifications WHERE user_id = ? AND event_key = ? LIMIT 1",
+                (user_id, event_key),
+            ).fetchone()
+            if exists:
+                return False
+            conn.execute(
+                """
+                INSERT INTO user_lead_notifications (
+                    id, user_id, saved_employer_id, event_key, title, reason, cta_text,
+                    company_name, employer_name, is_read, created_at, read_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NULL)
+                """,
+                (
+                    notification_id,
+                    user_id,
+                    saved_employer_id,
+                    event_key,
+                    title,
+                    reason,
+                    cta_text,
+                    company_name,
+                    employer_name,
+                    now_iso,
+                ),
+            )
+            return True
+
+    def list_user_lead_notifications(self, user_id: str, unread_only: bool = False, limit: int = 20) -> List[dict]:
+        safe_limit = max(1, min(int(limit), 100))
+        unread_clause = "AND is_read = 0" if unread_only else ""
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT id, saved_employer_id, event_key, title, reason, cta_text, company_name,
+                       employer_name, is_read, created_at, read_at
+                FROM user_lead_notifications
+                WHERE user_id = ?
+                {unread_clause}
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (user_id, safe_limit),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def mark_user_lead_notifications_read(self, user_id: str, notification_ids: List[str]) -> int:
+        ids = [item for item in notification_ids if item]
+        if not ids:
+            return 0
+        now_iso = datetime.now(timezone.utc).isoformat()
+        placeholders = ",".join("?" for _ in ids)
+        with self._connect() as conn:
+            cursor = conn.execute(
+                f"""
+                UPDATE user_lead_notifications
+                SET is_read = 1, read_at = ?
+                WHERE user_id = ? AND id IN ({placeholders}) AND is_read = 0
+                """,
+                (now_iso, user_id, *ids),
+            )
+            return int(cursor.rowcount or 0)
+
+    def mark_all_user_lead_notifications_read(self, user_id: str) -> int:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE user_lead_notifications
+                SET is_read = 1, read_at = ?
+                WHERE user_id = ? AND is_read = 0
+                """,
+                (now_iso, user_id),
+            )
+            return int(cursor.rowcount or 0)
 
     def _row_to_company(self, row: sqlite3.Row) -> Company:
         company = Company(

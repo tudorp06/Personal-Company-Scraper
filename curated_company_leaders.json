@@ -1,0 +1,154 @@
+[
+  {
+    "company_keys": {
+      "names": ["Meta", "Meta Platforms", "Facebook"],
+      "domains": ["meta.com", "facebook.com"]
+    },
+    "leaders": [
+      { "first_name": "Mark", "last_name": "Zuckerberg", "role": "Founder, Chairman & CEO" },
+      { "first_name": "Susan", "last_name": "Li", "role": "Chief Financial Officer" },
+      { "first_name": "Andrew", "last_name": "Bosworth", "role": "Chief Technology Officer" }
+    ]
+  },
+  {
+    "company_keys": {
+      "names": ["Netflix"],
+      "domains": ["netflix.com"]
+    },
+    "leaders": [
+      { "first_name": "Ted", "last_name": "Sarandos", "role": "Co-Chief Executive Officer" },
+      { "first_name": "Greg", "last_name": "Peters", "role": "Co-Chief Executive Officer" },
+      { "first_name": "Reed", "last_name": "Hastings", "role": "Co-Founder & Executive Chairman" },
+      { "first_name": "Spencer", "last_name": "Neumann", "role": "Chief Financial Officer" }
+    ]
+  },
+  {
+    "company_keys": {
+      "names": ["Apple"],
+      "domains": ["apple.com"]
+    },
+    "leaders": [
+      { "first_name": "Tim", "last_name": "Cook", "role": "Chief Executive Officer" },
+      { "first_name": "Arthur", "last_name": "Levinson", "role": "Chairman" },
+      { "first_name": "Kevan", "last_name": "Parekh", "role": "Chief Financial Officer" },
+      { "first_name": "Craig", "last_name": "Federighi", "role": "Senior VP, Software Engineering" }
+    ]
+  },
+  {
+    "company_keys": {
+      "names": ["NVIDIA", "Nvidia"],
+      "domains": ["nvidia.com"]
+    },
+    "leaders": [
+      { "first_name": "Jensen", "last_name": "Huang", "role": "Founder, President & CEO" },
+      { "first_name": "Colette", "last_name": "Kress", "role": "Executive VP & Chief Financial Officer" },
+      { "first_name": "Chris", "last_name": "Malachowsky", "role": "Co-Founder" }
+    ]
+  },
+  {
+    "company_keys": {
+      "names": ["Microsoft"],
+      "domains": ["microsoft.com"]
+    },
+    "leaders": [
+      { "first_name": "Satya", "last_name": "Nadella", "role": "Chairman & Chief Executive Officer" },
+      { "first_name": "Amy", "last_name": "Hood", "role": "Executive VP & Chief Financial Officer" },
+      { "first_name": "Kevin", "last_name": "Scott", "role": "Chief Technology Officer" }
+    ]
+  },
+  {
+    "company_keys": {
+      "names": ["Alphabet", "Google"],
+      "domains": ["abc.xyz", "google.com"]
+    },
+    "leaders": [
+      { "first_name": "Sundar", "last_name": "Pichai", "role": "Chief Executive Officer" },
+      { "first_name": "Anat", "last_name": "Ashkenazi", "role": "Chief Financial Officer" },
+      { "first_name": "Demis", "last_name": "Hassabis", "role": "CEO, Google DeepMind" }
+    ]
+  },
+  {
+    "company_keys": {
+      "names": ["Amazon", "Amazon Web Services", "AWS"],
+      "domains": ["amazon.com", "aws.amazon.com"]
+    },
+    "leaders": [
+      { "first_name": "Andy", "last_name": "Jassy", "role": "President & Chief Executive Officer" },
+      { "first_name": "Jeff", "last_name": "Bezos", "role": "Founder & Executive Chairman" },
+      { "first_name": "Brian", "last_name": "Olsavsky", "role": "Senior VP & Chief Financial Officer" },
+      { "first_name": "Matt", "last_name": "Garman", "role": "Chief Executive Officer, AWS" }
+    ]
+  },
+  {
+    "company_keys": {
+      "names": ["Tesla"],
+      "domains": ["tesla.com"]
+    },
+    "leaders": [
+      { "first_name": "Elon", "last_name": "Musk", "role": "Chief Executive Officer" },
+      { "first_name": "Vaibhav", "last_name": "Taneja", "role": "Chief Financial Officer" },
+      { "first_name": "Tom", "last_name": "Zhu", "role": "Senior VP, Automotive" }
+    ]
+  },
+  {
+    "company_keys": {
+      "names": ["OpenAI"],
+      "domains": ["openai.com"]
+    },
+    "leaders": [
+      { "first_name": "Sam", "last_name": "Altman", "role": "Chief Executive Officer" },
+      { "first_name": "Brad", "last_name": "Lightcap", "role": "Chief Operating Officer" },
+      { "first_name": "Sarah", "last_name": "Friar", "role": "Chief Financial Officer" }
+    ]
+  },
+  {
+    "company_keys": {
+      "names": ["Adobe"],
+      "domains": ["adobe.com"]
+    },
+    "leaders": [
+      { "first_name": "Shantanu", "last_name": "Narayen", "role": "Chairman & Chief Executive Officer" },
+      { "first_name": "Dan", "last_name": "Durn", "role": "Executive VP & Chief Financial Officer" }
+    ]
+  },
+  {
+    "company_keys": {
+      "names": ["Oracle"],
+      "domains": ["oracle.com"]
+    },
+    "leaders": [
+      { "first_name": "Safra", "last_name": "Catz", "role": "Chief Executive Officer" },
+      { "first_name": "Larry", "last_name": "Ellison", "role": "Co-Founder & Chief Technology Officer" }
+    ]
+  },
+  {
+    "company_keys": {
+      "names": ["Salesforce"],
+      "domains": ["salesforce.com"]
+    },
+    "leaders": [
+      { "first_name": "Marc", "last_name": "Benioff", "role": "Chair, Chief Executive Officer & Co-Founder" },
+      { "first_name": "Robin", "last_name": "Washington", "role": "President & Chief Operating and Financial Officer" }
+    ]
+  },
+  {
+    "company_keys": {
+      "names": ["Uber"],
+      "domains": ["uber.com"]
+    },
+    "leaders": [
+      { "first_name": "Dara", "last_name": "Khosrowshahi", "role": "Chief Executive Officer" },
+      { "first_name": "Prashanth", "last_name": "Mahendra-Rajah", "role": "Chief Financial Officer" }
+    ]
+  },
+  {
+    "company_keys": {
+      "names": ["Spotify"],
+      "domains": ["spotify.com"]
+    },
+    "leaders": [
+      { "first_name": "Daniel", "last_name": "Ek", "role": "Founder & Chief Executive Officer" },
+      { "first_name": "Alex", "last_name": "Norseen", "role": "Chief Financial Officer" }
+    ]
+  }
+]

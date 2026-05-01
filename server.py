@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import secrets
+from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -15,6 +16,7 @@ from repository import Repository
 
 ROOT_DIR = Path(__file__).resolve().parent
 FRONTEND_DIR = ROOT_DIR / "frontend"
+CURATED_LEADERS_PATH = ROOT_DIR / "curated_company_leaders.json"
 
 def _load_dotenv() -> None:
     env_path = ROOT_DIR / ".env"
@@ -31,6 +33,63 @@ def _load_dotenv() -> None:
             os.environ[key] = value
 
 _load_dotenv()
+
+
+def _normalize_key(value: str) -> str:
+    return "".join(ch for ch in value.lower() if ch.isalnum())
+
+
+def _load_curated_company_leaders() -> list[dict]:
+    if not CURATED_LEADERS_PATH.exists():
+        return []
+    try:
+        raw = json.loads(CURATED_LEADERS_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    if not isinstance(raw, list):
+        return []
+    cleaned: list[dict] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        company_keys = entry.get("company_keys")
+        leaders = entry.get("leaders")
+        if not isinstance(company_keys, dict) or not isinstance(leaders, list):
+            continue
+        names = [n.strip() for n in company_keys.get("names", []) if isinstance(n, str) and n.strip()]
+        domains = [d.strip().lower() for d in company_keys.get("domains", []) if isinstance(d, str) and d.strip()]
+        normalized_leaders = []
+        for leader in leaders:
+            if not isinstance(leader, dict):
+                continue
+            first_name = str(leader.get("first_name", "")).strip()
+            last_name = str(leader.get("last_name", "")).strip()
+            role = str(leader.get("role", "")).strip()
+            if not first_name or not last_name or not role:
+                continue
+            normalized_leaders.append({"first_name": first_name, "last_name": last_name, "role": role})
+        if names and normalized_leaders:
+            cleaned.append({"company_keys": {"names": names, "domains": domains}, "leaders": normalized_leaders})
+    return cleaned
+
+
+CURATED_COMPANY_LEADERS = _load_curated_company_leaders()
+
+
+def _match_curated_leaders(company_name: str, company_domain: str) -> list[dict]:
+    normalized_name = _normalize_key(company_name)
+    normalized_domain = company_domain.lower().strip().removeprefix("www.")
+    for entry in CURATED_COMPANY_LEADERS:
+        keys = entry["company_keys"]
+        name_matches = any(_normalize_key(candidate) in normalized_name or normalized_name in _normalize_key(candidate) for candidate in keys["names"])
+        domain_matches = any(
+            normalized_domain == domain or normalized_domain.endswith(f".{domain}") or domain.endswith(f".{normalized_domain}")
+            for domain in keys["domains"]
+            if normalized_domain
+        )
+        if name_matches or domain_matches:
+            return entry["leaders"]
+    return []
 
 directory_service = CompanyDirectoryService(
     brandfetch_client_id=os.getenv("BRANDFETCH_CLIENT_ID"),
@@ -58,6 +117,14 @@ class AppHandler(SimpleHTTPRequestHandler):
             return self._handle_auth_me()
         if parsed.path == "/api/user/saved-employers":
             return self._handle_list_saved_employers()
+        if parsed.path == "/api/user/profile":
+            return self._handle_get_user_profile()
+        if parsed.path == "/api/user/lead-notes":
+            return self._handle_list_user_lead_notes()
+        if parsed.path == "/api/user/lead-contacted":
+            return self._handle_list_user_lead_contacted()
+        if parsed.path == "/api/user/lead-notifications":
+            return self._handle_list_user_lead_notifications(parsed.query)
 
         return super().do_GET()
 
@@ -71,6 +138,14 @@ class AppHandler(SimpleHTTPRequestHandler):
             return self._handle_auth_logout()
         if parsed.path == "/api/user/saved-employers":
             return self._handle_save_employer()
+        if parsed.path == "/api/user/profile":
+            return self._handle_upsert_user_profile()
+        if parsed.path == "/api/user/lead-notes":
+            return self._handle_upsert_user_lead_note()
+        if parsed.path == "/api/user/lead-contacted":
+            return self._handle_upsert_user_lead_contacted()
+        if parsed.path == "/api/user/lead-notifications/read":
+            return self._handle_mark_user_lead_notifications_read()
         self.send_error(HTTPStatus.NOT_FOUND, "Not Found")
 
     def do_DELETE(self) -> None:
@@ -264,6 +339,64 @@ class AppHandler(SimpleHTTPRequestHandler):
         repository.clear_saved_employers_for_user(user.user_id)
         return self._send_json({"ok": True})
 
+    def _handle_get_user_profile(self) -> None:
+        user = self._current_user()
+        if not user:
+            return self._send_status_json(HTTPStatus.UNAUTHORIZED, {"error": "not authenticated"})
+        profile = repository.get_user_profile(user.user_id)
+        return self._send_json(
+            {
+                "user": {
+                    "id": user.user_id,
+                    "email": user.email,
+                    "display_name": user.display_name,
+                    "role": user.role.value,
+                },
+                "profile": profile,
+            }
+        )
+
+    def _handle_upsert_user_profile(self) -> None:
+        user = self._current_user()
+        if not user:
+            return self._send_status_json(HTTPStatus.UNAUTHORIZED, {"error": "not authenticated"})
+        data = self._read_json_body()
+        headline = str(data.get("headline", "")).strip()
+        cv_text = str(data.get("cv_text", "")).strip()
+        target_sectors = str(data.get("target_sectors", "")).strip()
+        target_company_size = str(data.get("target_company_size", "")).strip()
+        target_countries = str(data.get("target_countries", "")).strip()
+        target_work_mode = str(data.get("target_work_mode", "")).strip()
+        repository.upsert_user_profile(
+            user.user_id,
+            headline=headline,
+            cv_text=cv_text,
+            target_sectors=target_sectors,
+            target_company_size=target_company_size,
+            target_countries=target_countries,
+            target_work_mode=target_work_mode,
+        )
+        profile = repository.get_user_profile(user.user_id)
+        return self._send_json({"ok": True, "profile": profile})
+
+    def _handle_list_user_lead_notes(self) -> None:
+        user = self._current_user()
+        if not user:
+            return self._send_status_json(HTTPStatus.UNAUTHORIZED, {"error": "not authenticated"})
+        return self._send_json({"items": repository.list_user_lead_notes(user.user_id)})
+
+    def _handle_upsert_user_lead_note(self) -> None:
+        user = self._current_user()
+        if not user:
+            return self._send_status_json(HTTPStatus.UNAUTHORIZED, {"error": "not authenticated"})
+        data = self._read_json_body()
+        saved_employer_id = str(data.get("saved_employer_id", "")).strip()
+        if not saved_employer_id:
+            return self._send_status_json(HTTPStatus.BAD_REQUEST, {"error": "saved_employer_id required"})
+        note_text = str(data.get("note_text", "")).strip()
+        repository.upsert_user_lead_note(user.user_id, saved_employer_id=saved_employer_id, note_text=note_text)
+        return self._send_json({"ok": True})
+
     def _handle_delete_saved_employer(self, company_name: str, employer_name: str, employer_role: str) -> None:
         user = self._current_user()
         if not user:
@@ -282,6 +415,71 @@ class AppHandler(SimpleHTTPRequestHandler):
             return self._send_status_json(HTTPStatus.UNAUTHORIZED, {"error": "not authenticated"})
         repository.delete_saved_employer_by_id_for_user(user.user_id, saved_employer_id=saved_employer_id)
         return self._send_json({"ok": True})
+
+    def _handle_list_user_lead_contacted(self) -> None:
+        user = self._current_user()
+        if not user:
+            return self._send_status_json(HTTPStatus.UNAUTHORIZED, {"error": "not authenticated"})
+        items = repository.list_user_lead_contacted(user.user_id)
+        return self._send_json({"items": items})
+
+    def _handle_upsert_user_lead_contacted(self) -> None:
+        user = self._current_user()
+        if not user:
+            return self._send_status_json(HTTPStatus.UNAUTHORIZED, {"error": "not authenticated"})
+        data = self._read_json_body()
+        saved_employer_id = str(data.get("saved_employer_id", "")).strip()
+        if not saved_employer_id:
+            return self._send_status_json(HTTPStatus.BAD_REQUEST, {"error": "saved_employer_id required"})
+        is_contacted = bool(data.get("is_contacted", False))
+        repository.set_user_lead_contacted(user.user_id, saved_employer_id=saved_employer_id, is_contacted=is_contacted)
+        return self._send_json({"ok": True, "saved_employer_id": saved_employer_id, "is_contacted": is_contacted})
+
+    def _handle_list_user_lead_notifications(self, raw_query: str) -> None:
+        user = self._current_user()
+        if not user:
+            return self._send_status_json(HTTPStatus.UNAUTHORIZED, {"error": "not authenticated"})
+        params = parse_qs(raw_query)
+        try:
+            limit = max(1, min(int(params.get("limit", ["10"])[0]), 50))
+        except ValueError:
+            limit = 10
+        unread_only = params.get("unread_only", ["0"])[0].strip() == "1"
+        include_simulated = params.get("simulate", ["1"])[0].strip() != "0"
+        simulation_meta = {}
+        if include_simulated:
+            simulation_meta = _create_booster_updates_for_user(user.user_id)
+        items = repository.list_user_lead_notifications(user.user_id, unread_only=unread_only, limit=limit)
+        unread_count = len(repository.list_user_lead_notifications(user.user_id, unread_only=True, limit=200))
+        payload = {"items": items, "unread_count": unread_count}
+        if simulation_meta:
+            payload["eligibility"] = {
+                "saved_count": int(simulation_meta.get("saved_count") or 0),
+                "contacted_count": int(simulation_meta.get("contacted_count") or 0),
+                "eligible_count": int(simulation_meta.get("eligible_count") or 0),
+                "created_count": int(simulation_meta.get("created_count") or 0),
+                "fallback_created": bool(simulation_meta.get("fallback_created")),
+            }
+            status_message = str(simulation_meta.get("status_message") or "").strip()
+            if status_message:
+                payload["status_message"] = status_message
+        return self._send_json(payload)
+
+    def _handle_mark_user_lead_notifications_read(self) -> None:
+        user = self._current_user()
+        if not user:
+            return self._send_status_json(HTTPStatus.UNAUTHORIZED, {"error": "not authenticated"})
+        data = self._read_json_body()
+        ids = data.get("ids", [])
+        mark_all = bool(data.get("mark_all", False))
+        if mark_all:
+            updated = repository.mark_all_user_lead_notifications_read(user.user_id)
+            return self._send_json({"ok": True, "updated": updated})
+        if not isinstance(ids, list):
+            return self._send_status_json(HTTPStatus.BAD_REQUEST, {"error": "ids must be an array"})
+        cleaned_ids = [str(item).strip() for item in ids if str(item).strip()]
+        updated = repository.mark_user_lead_notifications_read(user.user_id, cleaned_ids)
+        return self._send_json({"ok": True, "updated": updated})
 
 
 def _build_company_insights(name: str, domain: str, country: str) -> dict:
@@ -475,10 +673,48 @@ def _build_company_insights(name: str, domain: str, country: str) -> dict:
             "Stockholm, Sweden",
         ]
 
+    interest_text = "specialized startups that directly improve the company's core product or platform economics"
+    lowered_name = name.lower()
+    for key, value in interests_map.items():
+        if key in lowered_name:
+            interest_text = value
+            break
+    if interest_text.startswith("specialized startups"):
+        lowered_domain = (domain or "").lower()
+        combined = f"{lowered_name} {lowered_domain}"
+        for key, value in sector_interests.items():
+            if key in combined:
+                interest_text = value
+                break
+
     employees = []
-    employee_count = 6
-    for idx in range(employee_count):
-        p_seed = int(digest[idx * 4 : idx * 4 + 4], 16)
+    curated_leaders = _match_curated_leaders(company_name=name, company_domain=domain_base)
+    for idx, leader in enumerate(curated_leaders):
+        p_seed = int(digest[(idx % 16) * 4 : (idx % 16) * 4 + 4], 16)
+        employees.append(
+            {
+                "id": f"{company_slug}-curated-{_normalize_key(leader['first_name'])}-{_normalize_key(leader['last_name'])}",
+                "first_name": leader["first_name"],
+                "last_name": leader["last_name"],
+                "role": leader["role"],
+                "email": f"{{redacted}}@{domain_base}",
+                "location": locations[(p_seed // 13) % len(locations)],
+                "department_rise_percent": 10 + (p_seed % 15),
+                "interviews_held_recently": 1 + (p_seed % 4),
+                "contact_likelihood_percent": 35 + (p_seed % 35),
+                "valuable_lead_score": min(88, 55 + (p_seed % 30)),
+                "outreach_window": "Best in next 7 days" if idx % 2 == 0 else "Strong this month",
+                "open_for_interviews_count": 1 + (p_seed % 2),
+                "interested_in": interest_text,
+                "pathway_reason": "Real public leadership contact included for company credibility context.",
+            }
+        )
+
+    synthetic_target_count = max(6, len(employees))
+    synthetic_needed = max(0, synthetic_target_count - len(employees))
+    for idx in range(synthetic_needed):
+        digest_idx = idx + len(employees)
+        p_seed = int(digest[(digest_idx % 16) * 4 : (digest_idx % 16) * 4 + 4], 16)
         first = first_names[p_seed % len(first_names)]
         last = last_names[(p_seed // 7) % len(last_names)]
         role = roles_pool[(p_seed // 11) % len(roles_pool)]
@@ -488,19 +724,6 @@ def _build_company_insights(name: str, domain: str, country: str) -> dict:
         contact = 52 + (p_seed % 44)
         score = min(98, 58 + (p_seed % 40))
         open_interviews = 1 + (p_seed % 2)
-        interest_text = "specialized startups that directly improve the company's core product or platform economics"
-        lowered_name = name.lower()
-        for key, value in interests_map.items():
-            if key in lowered_name:
-                interest_text = value
-                break
-        if interest_text.startswith("specialized startups"):
-            lowered_domain = (domain or "").lower()
-            combined = f"{lowered_name} {lowered_domain}"
-            for key, value in sector_interests.items():
-                if key in combined:
-                    interest_text = value
-                    break
         pathway_reason = (
             "Works across partner teams and can route strong startup intros to hiring and product groups."
             if idx % 2 == 0
@@ -508,7 +731,7 @@ def _build_company_insights(name: str, domain: str, country: str) -> dict:
         )
         employees.append(
             {
-                "id": f"{company_slug}-{first.lower()}-{last.lower()}",
+                "id": f"{company_slug}-{first.lower()}-{last.lower()}-{idx}",
                 "first_name": first,
                 "last_name": last,
                 "role": role,
@@ -570,9 +793,109 @@ def _verify_password(password: str, stored: str) -> bool:
 
 
 def _session_expiry_iso(days: int = 14) -> str:
-    from datetime import datetime, timedelta, timezone
-
     return (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
+
+
+def _create_booster_updates_for_user(user_id: str) -> dict:
+    contacted_items = repository.list_user_lead_contacted(user_id)
+    contacted_ids = {item["saved_employer_id"] for item in contacted_items if int(item.get("is_contacted") or 0) == 1}
+    saved_items = repository.list_saved_employers_for_user(user_id)
+    saved_by_id = {}
+    for lead in saved_items:
+        lead_id = str(lead.get("id") or "").strip()
+        if not lead_id:
+            continue
+        saved_by_id[lead_id] = lead
+    eligible_ids = [lead_id for lead_id in saved_by_id if lead_id in contacted_ids]
+    summary = {
+        "saved_count": len(saved_by_id),
+        "contacted_count": len(contacted_ids),
+        "eligible_count": len(eligible_ids),
+        "created_count": 0,
+        "fallback_created": False,
+        "status_message": "",
+    }
+    if not eligible_ids:
+        if saved_by_id and not contacted_ids:
+            summary["status_message"] = "No contacted leads yet. Mark a saved lead as Contacted to receive booster updates."
+        elif not saved_by_id:
+            summary["status_message"] = "No saved leads yet. Save leads to unlock booster updates."
+        return summary
+
+    today = datetime.now(timezone.utc).date().isoformat()
+    existing_items = repository.list_user_lead_notifications(user_id, unread_only=False, limit=300)
+    unread_existing = 0
+    last_by_lead: dict[str, datetime] = {}
+    for item in existing_items:
+        if int(item.get("is_read") or 0) == 0:
+            unread_existing += 1
+        lead_id = str(item.get("saved_employer_id") or "")
+        created_at_raw = str(item.get("created_at") or "")
+        if not lead_id or not created_at_raw:
+            continue
+        try:
+            created_at = datetime.fromisoformat(created_at_raw.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if lead_id not in last_by_lead or created_at > last_by_lead[lead_id]:
+            last_by_lead[lead_id] = created_at
+
+    cooldown = timedelta(hours=20)
+    now = datetime.now(timezone.utc)
+    for lead_id in eligible_ids:
+        lead = saved_by_id[lead_id]
+        # deterministic daily simulation seed per user + lead + day
+        daily_seed = sha256(f"{user_id}|{lead_id}|{today}".encode("utf-8")).hexdigest()
+        chance_gate = int(daily_seed[:2], 16)
+        if chance_gate > 82:
+            continue
+        if lead_id in last_by_lead and now - last_by_lead[lead_id] < cooldown:
+            continue
+        reason_idx = int(daily_seed[2:4], 16) % 2
+        reason = "Open to interviews" if reason_idx == 0 else "Seen your message and is thinking"
+        event_key = f"{lead_id}:{today}:{reason_idx}"
+        notification_id = sha256(f"{user_id}:{event_key}".encode("utf-8")).hexdigest()[:32]
+        created = repository.create_user_lead_notification(
+            notification_id=notification_id,
+            user_id=user_id,
+            saved_employer_id=lead_id,
+            event_key=event_key,
+            title="Lead update",
+            reason=reason,
+            cta_text="Great time to follow up",
+            company_name=str(lead.get("company_name") or ""),
+            employer_name=str(lead.get("employer_name") or ""),
+        )
+        if created:
+            summary["created_count"] += 1
+
+    # Safe fallback: if user has eligible leads but nothing unread, create one low-frequency deterministic event.
+    fallback_cooldown = timedelta(hours=12)
+    if summary["created_count"] == 0 and unread_existing == 0 and eligible_ids:
+        fallback_lead_id = sorted(eligible_ids)[0]
+        lead = saved_by_id[fallback_lead_id]
+        last_created = last_by_lead.get(fallback_lead_id)
+        if not last_created or now - last_created >= fallback_cooldown:
+            fallback_key = f"{fallback_lead_id}:{today}:fallback"
+            fallback_id = sha256(f"{user_id}:{fallback_key}".encode("utf-8")).hexdigest()[:32]
+            fallback_created = repository.create_user_lead_notification(
+                notification_id=fallback_id,
+                user_id=user_id,
+                saved_employer_id=fallback_lead_id,
+                event_key=fallback_key,
+                title="Lead update",
+                reason="Quick check-in moment: this lead still looks warm for follow-up.",
+                cta_text="Send a short follow-up message",
+                company_name=str(lead.get("company_name") or ""),
+                employer_name=str(lead.get("employer_name") or ""),
+            )
+            if fallback_created:
+                summary["created_count"] += 1
+                summary["fallback_created"] = True
+
+    if summary["created_count"] == 0 and unread_existing == 0:
+        summary["status_message"] = "No fresh lead responses yet. Keep a few leads marked Contacted to increase update chances."
+    return summary
 
 
 def run(host: str = "127.0.0.1", port: int = 5500) -> None:

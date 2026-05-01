@@ -8,15 +8,21 @@ const loginForm = document.getElementById("login-form");
 const authMessage = document.getElementById("auth-message");
 const logoutButton = document.getElementById("logout-button");
 const dashboardToggleButton = document.getElementById("dashboard-toggle");
+const profileToggleButton = document.getElementById("profile-toggle");
 const contrastToggleButton = document.getElementById("contrast-toggle");
 const homeView = document.getElementById("home-view");
 const dashboardView = document.getElementById("dashboard-view");
+const profileView = document.getElementById("profile-view");
 const savedLeadsList = document.getElementById("saved-leads-list");
 const refreshSavedLeadsButton = document.getElementById("refresh-saved-leads");
 const notificationsToggleButton = document.getElementById("notifications-toggle");
+const notificationBellButton = document.getElementById("notification-bell");
+const notificationBellCount = document.getElementById("notification-bell-count");
+const boosterToastStack = document.getElementById("booster-toast-stack");
 const resetSavedLeadsButton = document.getElementById("reset-saved-leads");
 const savedLeadsStatus = document.getElementById("saved-leads-status");
 const sectorFilters = document.getElementById("sector-filters");
+const dashboardPreferencesSummary = document.getElementById("dashboard-preferences-summary");
 const removeModal = document.getElementById("remove-modal");
 const removeModalSubtitle = document.getElementById("remove-modal-subtitle");
 const cancelRemoveLeadButton = document.getElementById("cancel-remove-lead");
@@ -24,6 +30,20 @@ const confirmRemoveLeadButton = document.getElementById("confirm-remove-lead");
 const goalTargetInput = document.getElementById("goal-target-input");
 const saveGoalTargetButton = document.getElementById("save-goal-target");
 const goalProgressText = document.getElementById("goal-progress-text");
+const profileDisplayName = document.getElementById("profile-display-name");
+const profileEmail = document.getElementById("profile-email");
+const profileRole = document.getElementById("profile-role");
+const profileHeadlineInput = document.getElementById("profile-headline");
+const profileCvTextInput = document.getElementById("profile-cv-text");
+const profileTargetSectorsInput = document.getElementById("profile-target-sectors");
+const profileTargetCompanySizeInput = document.getElementById("profile-target-company-size");
+const profileTargetCountriesInput = document.getElementById("profile-target-countries");
+const profileTargetWorkModeInput = document.getElementById("profile-target-work-mode");
+const savePreferencesButton = document.getElementById("save-preferences-button");
+const profilePreferencesPreview = document.getElementById("profile-preferences-preview");
+const saveProfileButton = document.getElementById("save-profile-button");
+const profileHeadlinePreview = document.getElementById("profile-headline-preview");
+const profileCvPreview = document.getElementById("profile-cv-preview");
 const suggestions = document.getElementById("suggestions");
 const themeToggle = document.getElementById("theme-toggle");
 const companyCard = document.getElementById("company-card");
@@ -34,6 +54,8 @@ const employeeList = document.getElementById("employee-list");
 const employeeCard = document.getElementById("employee-card");
 const employeeCardCompanyLogo = document.getElementById("employee-card-company-logo");
 const employeeCardCompanyName = document.getElementById("employee-card-company-name");
+const employeeCardRoleIcon = document.getElementById("employee-card-role-icon");
+const employeeCardRoleBadge = document.getElementById("employee-card-role-badge");
 const employeeCardFirstName = document.getElementById("employee-card-first-name");
 const employeeCardLastName = document.getElementById("employee-card-last-name");
 const employeeCardEmail = document.getElementById("employee-card-email");
@@ -44,6 +66,7 @@ const favoriteButton = document.getElementById("favorite-button");
 const employeeTabs = Array.from(document.querySelectorAll(".employee-tab"));
 const valuableLeadsPanel = document.getElementById("valuable-leads-panel");
 const addressesPanel = document.getElementById("addresses-panel");
+const outreachPlanPanel = document.getElementById("outreach-plan-panel");
 let activeController = null;
 let debounceTimer = null;
 let currentSuggestions = [];
@@ -58,12 +81,25 @@ let activeSectorFilter = "All";
 let pendingRemoveLead = null;
 let currentUserEmail = "guest";
 let lastLoadedSavedLeads = [];
+let leadNotesById = {};
+let contactedLeadsById = {};
+let leadNotifications = [];
+let shownToastNotificationIds = {};
+let lastNotificationStatusMessage = "";
+let notificationPollTimer = null;
+let userPreferences = {
+  target_sectors: "",
+  target_company_size: "",
+  target_countries: "",
+  target_work_mode: "",
+};
 const THEME_STORAGE_KEY = "ui_theme_preference";
 const CONTRAST_STORAGE_KEY = "ui_contrast_preference";
 const FAVORITES_STORAGE_KEY = "favorite_employees";
 const LEADS_NOTIFICATIONS_ENABLED_KEY = "leads_notifications_enabled";
 const LEADS_NOTIFICATIONS_MAP_KEY = "leads_notifications_map";
 const LEADS_STATUS_MAP_KEY = "leads_status_map";
+const BOOSTER_TOAST_LIMIT = 2;
 const BRANDFETCH_CLIENT_ID = "1id6iCSRkbc4cqe2MBu";
 const LEAD_SECTORS = ["All", "BigTech", "Tech", "Economics", "Properties", "CyberSec", "Graphic Design"];
 const CONTRAST_PRESETS = ["default", "high"];
@@ -132,6 +168,110 @@ async function authRequest(url, payload) {
   return { ok: response.ok, status: response.status, data: json };
 }
 
+async function fetchUserProfile() {
+  const response = await fetch("/api/user/profile");
+  if (!response.ok) throw new Error(`Profile failed with ${response.status}`);
+  return response.json();
+}
+
+async function saveUserProfile(headline, cvText) {
+  const response = await fetch("/api/user/profile", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      headline: headline || "",
+      cv_text: cvText || "",
+      target_sectors: profileTargetSectorsInput?.value || "",
+      target_company_size: profileTargetCompanySizeInput?.value || "",
+      target_countries: profileTargetCountriesInput?.value || "",
+      target_work_mode: profileTargetWorkModeInput?.value || "",
+    }),
+  });
+  if (!response.ok) throw new Error(`Profile save failed with ${response.status}`);
+  return response.json();
+}
+
+async function fetchLeadNotes() {
+  const response = await fetch("/api/user/lead-notes");
+  if (!response.ok) throw new Error(`Lead notes failed with ${response.status}`);
+  const payload = await response.json();
+  const items = Array.isArray(payload.items) ? payload.items : [];
+  const map = {};
+  items.forEach((item) => {
+    if (item.saved_employer_id) {
+      map[item.saved_employer_id] = item.note_text || "";
+    }
+  });
+  return map;
+}
+
+async function saveLeadNote(savedEmployerId, noteText) {
+  const response = await fetch("/api/user/lead-notes", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      saved_employer_id: savedEmployerId || "",
+      note_text: noteText || "",
+    }),
+  });
+  return response.ok;
+}
+
+async function fetchContactedLeads() {
+  const response = await fetch("/api/user/lead-contacted");
+  if (!response.ok) throw new Error(`Lead contacted failed with ${response.status}`);
+  const payload = await response.json();
+  const items = Array.isArray(payload.items) ? payload.items : [];
+  const map = {};
+  items.forEach((item) => {
+    if (item.saved_employer_id) {
+      map[item.saved_employer_id] = Boolean(item.is_contacted);
+    }
+  });
+  return map;
+}
+
+async function saveLeadContacted(savedEmployerId, isContacted) {
+  const response = await fetch("/api/user/lead-contacted", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      saved_employer_id: savedEmployerId || "",
+      is_contacted: Boolean(isContacted),
+    }),
+  });
+  return response.ok;
+}
+
+async function fetchLeadNotifications(options = {}) {
+  const params = new URLSearchParams({
+    limit: String(options.limit || 20),
+    unread_only: options.unreadOnly ? "1" : "0",
+    simulate: options.simulate === false ? "0" : "1",
+  });
+  const response = await fetch(`/api/user/lead-notifications?${params.toString()}`);
+  if (!response.ok) throw new Error(`Lead notifications failed with ${response.status}`);
+  return response.json();
+}
+
+async function markLeadNotificationsRead(ids) {
+  const response = await fetch("/api/user/lead-notifications/read", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids: Array.isArray(ids) ? ids : [] }),
+  });
+  return response.ok;
+}
+
+async function markAllLeadNotificationsRead() {
+  const response = await fetch("/api/user/lead-notifications/read", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mark_all: true }),
+  });
+  return response.ok;
+}
+
 async function resolveSession() {
   try {
     const response = await fetch("/api/auth/me");
@@ -142,6 +282,9 @@ async function resolveSession() {
     const payload = await response.json().catch(() => ({}));
     currentUserEmail = payload?.user?.email || "guest";
     loadGoalTarget();
+    void loadUserPreferencesOnly();
+    void loadLeadNotifications({ limit: 20, unreadOnly: false, simulate: true });
+    startNotificationPolling();
     showAppShell();
   } catch {
     showAuthScreen();
@@ -362,6 +505,80 @@ function showSavedLeadsStatus(message) {
   savedLeadsStatus.classList.remove("hidden");
 }
 
+function updateNotificationBell(unreadCount) {
+  if (!notificationBellCount || !notificationBellButton) return;
+  const safeCount = Math.max(0, Number(unreadCount) || 0);
+  notificationBellButton.classList.toggle("has-unread", safeCount > 0);
+  notificationBellCount.textContent = safeCount > 99 ? "99+" : String(safeCount);
+  notificationBellCount.classList.toggle("hidden", safeCount <= 0);
+}
+
+function dismissToastCard(toast) {
+  if (!toast) return;
+  toast.classList.add("is-exit");
+  setTimeout(() => toast.remove(), 230);
+}
+
+function renderBoosterToast(notification) {
+  if (!boosterToastStack) return;
+  if (!notificationsEnabled()) return;
+  const existingCount = boosterToastStack.querySelectorAll(".booster-toast-card").length;
+  if (existingCount >= BOOSTER_TOAST_LIMIT) return;
+
+  const toast = document.createElement("article");
+  toast.className = "booster-toast-card";
+  toast.dataset.notificationId = notification.id || "";
+  toast.innerHTML = `
+    <p class="booster-toast-title">${notification.title || "Lead update"}</p>
+    <p class="booster-toast-company">${notification.employer_name || "Lead"} · ${notification.company_name || ""}</p>
+    <p class="booster-toast-reason">${notification.reason || "Positive update received"}</p>
+    <p class="booster-toast-cta">${notification.cta_text || "Great time to follow up"}</p>
+  `;
+  boosterToastStack.appendChild(toast);
+  setTimeout(() => dismissToastCard(toast), 5200);
+}
+
+async function loadLeadNotifications(options = {}) {
+  try {
+    const payload = await fetchLeadNotifications(options);
+    const items = Array.isArray(payload.items) ? payload.items : [];
+    leadNotifications = items;
+    const unreadCount = Math.max(0, Number(payload.unread_count) || 0);
+    updateNotificationBell(unreadCount);
+    items.forEach((item) => {
+      const notificationId = item.id || "";
+      if (!notificationId || item.is_read || shownToastNotificationIds[notificationId]) return;
+      shownToastNotificationIds[notificationId] = true;
+      renderBoosterToast(item);
+    });
+    const statusMessage = typeof payload.status_message === "string" ? payload.status_message.trim() : "";
+    if (statusMessage && unreadCount === 0 && notificationsEnabled()) {
+      if (statusMessage !== lastNotificationStatusMessage) {
+        showSavedLeadsStatus(statusMessage);
+        lastNotificationStatusMessage = statusMessage;
+      }
+    } else if (unreadCount > 0) {
+      lastNotificationStatusMessage = "";
+    }
+  } catch {
+    updateNotificationBell(0);
+  }
+}
+
+function stopNotificationPolling() {
+  if (notificationPollTimer) {
+    clearInterval(notificationPollTimer);
+    notificationPollTimer = null;
+  }
+}
+
+function startNotificationPolling() {
+  stopNotificationPolling();
+  notificationPollTimer = setInterval(() => {
+    void loadLeadNotifications({ limit: 20, unreadOnly: false, simulate: true });
+  }, 45000);
+}
+
 function leadNotificationKey(item) {
   return `${item.company_name || ""}|${item.employer_name || ""}|${item.employer_role || ""}`.toLowerCase();
 }
@@ -395,6 +612,7 @@ function setNotificationsEnabled(enabled) {
   if (enabled) {
     showSavedLeadsStatus("Notifications are active for selected leads.");
   } else {
+    boosterToastStack?.querySelectorAll(".booster-toast-card").forEach((node) => node.remove());
     showSavedLeadsStatus("Notifications are paused. Turn them on to receive interview-open alerts.");
   }
 }
@@ -585,6 +803,16 @@ async function loadSavedLeads() {
   if (!savedLeadsList) return;
   savedLeadsList.innerHTML = "";
   try {
+    try {
+      leadNotesById = await fetchLeadNotes();
+    } catch {
+      leadNotesById = {};
+    }
+    try {
+      contactedLeadsById = await fetchContactedLeads();
+    } catch {
+      contactedLeadsById = {};
+    }
     const response = await fetch("/api/user/saved-employers");
     if (!response.ok) {
       return;
@@ -616,6 +844,10 @@ async function loadSavedLeads() {
     const key = leadNotificationKey(item);
       const status = leadStatusFor(item);
       const alert = leadAlertForScore(item.lead_score);
+      const savedNoteText = leadNotesById[item.id] || "";
+      const trimmedSavedNoteText = savedNoteText.trim();
+      const hasSavedNote = Boolean(trimmedSavedNoteText);
+      const isContacted = Boolean(contactedLeadsById[item.id]);
       row.innerHTML = `
         <div class="saved-lead-item-head">
           <p class="saved-lead-title">
@@ -643,10 +875,31 @@ async function loadSavedLeads() {
         <p class="saved-lead-meta">${item.company_name} · score ${item.lead_score}</p>
         <div class="saved-lead-controls">
           <span class="saved-lead-sector">${item.sector}</span>
+          <button
+            type="button"
+            class="saved-lead-contacted ${isContacted ? "is-on" : ""}"
+            data-contacted-id="${item.id || ""}"
+            aria-pressed="${isContacted ? "true" : "false"}"
+          >
+            ${isContacted ? "Contacted" : "Mark Contacted"}
+          </button>
           <div class="saved-lead-status-chips" role="group" aria-label="Lead status">
             <button type="button" class="saved-lead-status-chip ${status === "hot" ? "is-active" : ""}" data-lead-key="${key}" data-status="hot" aria-pressed="${status === "hot"}">Hot</button>
             <button type="button" class="saved-lead-status-chip ${status === "follow-up" ? "is-active" : ""}" data-lead-key="${key}" data-status="follow-up" aria-pressed="${status === "follow-up"}">Follow-up</button>
             <button type="button" class="saved-lead-status-chip ${status === "cv" ? "is-active" : ""}" data-lead-key="${key}" data-status="cv" aria-pressed="${status === "cv"}">CV</button>
+          </div>
+        </div>
+        <div class="saved-lead-note-wrap ${hasSavedNote ? "is-display-mode" : "is-editor-mode"}" data-note-wrap-id="${item.id || ""}">
+          <label class="saved-lead-note-label" for="lead-note-${item.id || key}">Private note</label>
+          <div class="saved-lead-note-editor">
+            <textarea id="lead-note-${item.id || key}" class="saved-lead-note-input" data-note-lead-id="${item.id || ""}" placeholder="Private note for this lead...">${savedNoteText}</textarea>
+            <button type="button" class="saved-lead-note-save" data-note-save-id="${item.id || ""}">Save Note</button>
+          </div>
+          <div class="saved-lead-note-display ${hasSavedNote ? "" : "hidden"}">
+            <p class="saved-lead-note-preview ${hasSavedNote ? "" : "hidden"}" data-note-preview-id="${item.id || ""}">
+              Instruction: ${trimmedSavedNoteText}
+            </p>
+            <button type="button" class="saved-lead-note-edit" data-note-edit-id="${item.id || ""}">Edit note</button>
           </div>
         </div>
       `;
@@ -669,16 +922,115 @@ async function loadSavedLeads() {
 }
 
 function setMainView(view) {
-  activeMainView = view === "dashboard" ? "dashboard" : "home";
+  activeMainView = view === "dashboard" || view === "profile" ? view : "home";
   homeView?.classList.toggle("hidden", activeMainView !== "home");
   dashboardView?.classList.toggle("hidden", activeMainView !== "dashboard");
+  profileView?.classList.toggle("hidden", activeMainView !== "profile");
   dashboardToggleButton?.classList.toggle("is-active", activeMainView === "dashboard");
+  profileToggleButton?.classList.toggle("active", activeMainView === "profile");
   if (dashboardToggleButton) {
     dashboardToggleButton.textContent = activeMainView === "dashboard" ? "Home" : "Saved Leads";
   }
   if (activeMainView === "dashboard") {
     void loadSavedLeads();
+    void loadLeadNotifications({ limit: 20, unreadOnly: false, simulate: true });
   }
+  if (activeMainView === "profile") {
+    void loadProfileView();
+  }
+}
+
+function refreshDashboardPreferencesSummary() {
+  if (!dashboardPreferencesSummary) return;
+  const sectors = userPreferences.target_sectors || "Any sectors";
+  const companySize = userPreferences.target_company_size || "Any company size";
+  const countries = userPreferences.target_countries || "Any country";
+  const workMode = userPreferences.target_work_mode || "Any work mode";
+  dashboardPreferencesSummary.textContent = `${sectors} · ${companySize} · ${countries} · ${workMode}`;
+}
+
+function refreshProfilePreferencesPreview() {
+  if (!profilePreferencesPreview) return;
+  const sectors = userPreferences.target_sectors || "Any sectors";
+  const companySize = userPreferences.target_company_size || "Any company size";
+  const countries = userPreferences.target_countries || "Any country";
+  const workMode = userPreferences.target_work_mode || "Any work mode";
+  profilePreferencesPreview.textContent = `Saved picks: ${sectors} · ${companySize} · ${countries} · ${workMode}`;
+}
+
+async function loadProfileView() {
+  try {
+    const payload = await fetchUserProfile();
+    const user = payload?.user || {};
+    const profile = payload?.profile || {};
+    profileDisplayName.textContent = user.display_name || "";
+    profileEmail.textContent = user.email || "";
+    profileRole.textContent = user.role || "";
+    profileHeadlineInput.value = profile.headline || "";
+    profileCvTextInput.value = profile.cv_text || "";
+    profileTargetSectorsInput.value = profile.target_sectors || "";
+    profileTargetCompanySizeInput.value = profile.target_company_size || "";
+    profileTargetCountriesInput.value = profile.target_countries || "";
+    profileTargetWorkModeInput.value = profile.target_work_mode || "";
+    userPreferences = {
+      target_sectors: profile.target_sectors || "",
+      target_company_size: profile.target_company_size || "",
+      target_countries: profile.target_countries || "",
+      target_work_mode: profile.target_work_mode || "",
+    };
+    refreshDashboardPreferencesSummary();
+    refreshProfilePreferencesPreview();
+    profileHeadlinePreview.textContent = profile.headline || "No headline yet.";
+    profileCvPreview.textContent = profile.cv_text || "No CV saved yet.";
+    showSavedLeadsStatus("");
+  } catch {
+    showSavedLeadsStatus("Could not load profile right now.");
+  }
+}
+
+async function loadUserPreferencesOnly() {
+  try {
+    const payload = await fetchUserProfile();
+    const profile = payload?.profile || {};
+    userPreferences = {
+      target_sectors: profile.target_sectors || "",
+      target_company_size: profile.target_company_size || "",
+      target_countries: profile.target_countries || "",
+      target_work_mode: profile.target_work_mode || "",
+    };
+    refreshDashboardPreferencesSummary();
+    refreshProfilePreferencesPreview();
+  } catch {
+    userPreferences = {
+      target_sectors: "",
+      target_company_size: "",
+      target_countries: "",
+      target_work_mode: "",
+    };
+    refreshDashboardPreferencesSummary();
+    refreshProfilePreferencesPreview();
+  }
+}
+
+function renderOutreachPlan(company) {
+  if (!outreachPlanPanel) return;
+  const readiness = companyInsights.collaboration_readiness || {};
+  const preferredSectors = userPreferences.target_sectors || "your selected sectors";
+  const channels = Array.isArray(readiness.channels) ? readiness.channels : ["Partner referrals", "Pilot programs"];
+  const topLead = buildValuableLeadInsights(company)[0];
+  const opener = topLead
+    ? `${topLead.employee.firstName} ${topLead.employee.lastName} (${topLead.employee.role})`
+    : "the strongest pathway contact";
+  outreachPlanPanel.innerHTML = `
+    <article class="lead-readiness-card">
+      <p class="lead-readiness-title">Outreach Plan</p>
+      <p class="lead-role"><strong>Best first path:</strong> ${opener}</p>
+      <p class="lead-role"><strong>Message angle:</strong> mention how your profile/startup fits ${preferredSectors} and links to ${company.name}'s current collaboration channels.</p>
+      <p class="lead-role"><strong>Proof to attach:</strong> CV, one relevant project/case study, and a short integration idea.</p>
+      <p class="lead-role"><strong>Preferred channels:</strong> ${channels.join(" · ")}</p>
+      <p class="lead-role"><strong>Risk flags:</strong> if no response in 7 days, switch to alternate lead and adjust the pitch to concrete ROI.</p>
+    </article>
+  `;
 }
 
 function isFavorite(employeeId) {
@@ -700,10 +1052,30 @@ function updateFavoriteButton(employee) {
   }
 }
 
+function roleVisual(role) {
+  const lower = String(role || "").toLowerCase();
+  if (/(engineer|developer|platform|technical|solution)/.test(lower)) {
+    return { icon: "⚙", label: "Engineering Path" };
+  }
+  if (/(partner|business development|accounts|ecosystem)/.test(lower)) {
+    return { icon: "🤝", label: "Partnership Path" };
+  }
+  if (/(research|analytics|data)/.test(lower)) {
+    return { icon: "📊", label: "Insight Path" };
+  }
+  if (/(product|program|operations)/.test(lower)) {
+    return { icon: "🚀", label: "Execution Path" };
+  }
+  return { icon: "🧭", label: "Team Pathway" };
+}
+
 function renderEmployeeCard(employee, company) {
   selectedEmployee = employee;
+  const roleInfo = roleVisual(employee.role);
   employeeCardCompanyLogo.src = company.logo_url || brandfetchLogoUrl(company.domain);
   employeeCardCompanyName.textContent = company.name;
+  if (employeeCardRoleIcon) employeeCardRoleIcon.textContent = roleInfo.icon;
+  if (employeeCardRoleBadge) employeeCardRoleBadge.textContent = roleInfo.label;
   employeeCardFirstName.textContent = employee.firstName;
   employeeCardLastName.textContent = employee.lastName;
   employeeCardEmail.textContent = employee.email;
@@ -862,11 +1234,13 @@ function setEmployeeView(view) {
   employeeList.classList.toggle("hidden", view !== "people");
   valuableLeadsPanel.classList.toggle("hidden", view !== "valuable");
   addressesPanel.classList.toggle("hidden", view !== "addresses");
+  outreachPlanPanel.classList.toggle("hidden", view !== "outreach");
   employeeCard.classList.toggle("hidden", view !== "people" || !selectedEmployee);
 
   if (!selectedCompany) return;
   if (view === "valuable") renderValuableLeads(selectedCompany);
   if (view === "addresses") renderAddresses(selectedCompany);
+  if (view === "outreach") renderOutreachPlan(selectedCompany);
 }
 
 function companyKey(company) {
@@ -1000,13 +1374,30 @@ refreshSavedLeadsButton?.addEventListener("click", () => {
   void loadSavedLeads();
 });
 dashboardToggleButton?.addEventListener("click", () => {
-  const nextView = activeMainView === "home" ? "dashboard" : "home";
+  const nextView = activeMainView === "dashboard" ? "home" : "dashboard";
+  setMainView(nextView);
+});
+profileToggleButton?.addEventListener("click", () => {
+  const nextView = activeMainView === "profile" ? "home" : "profile";
   setMainView(nextView);
 });
 notificationsToggleButton?.addEventListener("click", () => {
   const next = !notificationsEnabled();
   setNotificationsEnabled(next);
   void loadSavedLeads();
+});
+notificationBellButton?.addEventListener("click", () => {
+  void (async () => {
+    const unreadIds = leadNotifications.filter((item) => !item.is_read).map((item) => item.id).filter(Boolean);
+    if (unreadIds.length > 0) {
+      await markLeadNotificationsRead(unreadIds).catch(() => false);
+      leadNotifications = leadNotifications.map((item) => ({ ...item, is_read: true }));
+    } else {
+      await markAllLeadNotificationsRead().catch(() => false);
+    }
+    updateNotificationBell(0);
+    showSavedLeadsStatus("Lead updates marked as read.");
+  })();
 });
 resetSavedLeadsButton?.addEventListener("click", async () => {
   const confirmed = window.confirm("Reset saved leads list? This will remove all saved leads for your account.");
@@ -1017,10 +1408,59 @@ resetSavedLeadsButton?.addEventListener("click", async () => {
     return;
   }
   saveLeadNotificationsMap({});
+  contactedLeadsById = {};
   showSavedLeadsStatus("Saved leads list was reset.");
   void loadSavedLeads();
 });
 savedLeadsList?.addEventListener("click", (event) => {
+  const noteSaveButton = event.target.closest(".saved-lead-note-save");
+  if (noteSaveButton) {
+    const leadId = noteSaveButton.dataset.noteSaveId || "";
+    if (!leadId) return;
+    const textarea = savedLeadsList.querySelector(`.saved-lead-note-input[data-note-lead-id="${leadId}"]`);
+    const noteText = textarea?.value || "";
+    void (async () => {
+      const ok = await saveLeadNote(leadId, noteText).catch(() => false);
+      if (!ok) {
+        showSavedLeadsStatus("Could not save note right now.");
+        return;
+      }
+      leadNotesById[leadId] = noteText;
+      const noteWrap = savedLeadsList.querySelector(`.saved-lead-note-wrap[data-note-wrap-id="${leadId}"]`);
+      const noteDisplay = noteWrap?.querySelector(".saved-lead-note-display");
+      const preview = savedLeadsList.querySelector(`.saved-lead-note-preview[data-note-preview-id="${leadId}"]`);
+      if (preview) {
+        if (noteText.trim()) {
+          preview.textContent = `Instruction: ${noteText.trim()}`;
+          preview.classList.remove("hidden");
+          noteWrap?.classList.remove("is-editor-mode");
+          noteWrap?.classList.add("is-display-mode");
+          noteDisplay?.classList.remove("hidden");
+        } else {
+          preview.textContent = "";
+          preview.classList.add("hidden");
+          noteWrap?.classList.remove("is-display-mode");
+          noteWrap?.classList.add("is-editor-mode");
+          noteDisplay?.classList.add("hidden");
+        }
+      }
+      showSavedLeadsStatus("Private note saved.");
+    })();
+    return;
+  }
+
+  const noteEditButton = event.target.closest(".saved-lead-note-edit");
+  if (noteEditButton) {
+    const leadId = noteEditButton.dataset.noteEditId || "";
+    if (!leadId) return;
+    const noteWrap = savedLeadsList.querySelector(`.saved-lead-note-wrap[data-note-wrap-id="${leadId}"]`);
+    const noteDisplay = noteWrap?.querySelector(".saved-lead-note-display");
+    noteWrap?.classList.remove("is-display-mode");
+    noteWrap?.classList.add("is-editor-mode");
+    noteDisplay?.classList.add("hidden");
+    return;
+  }
+
   const exportButton = event.target.closest(".saved-lead-export");
   if (exportButton) {
     const leadId = exportButton.dataset.leadId || "";
@@ -1061,6 +1501,31 @@ savedLeadsList?.addEventListener("click", (event) => {
       chip.classList.toggle("is-active", active);
       chip.setAttribute("aria-pressed", active ? "true" : "false");
     });
+    return;
+  }
+
+  const contactedButton = event.target.closest(".saved-lead-contacted");
+  if (contactedButton) {
+    const leadId = contactedButton.dataset.contactedId || "";
+    if (!leadId) return;
+    const next = !Boolean(contactedLeadsById[leadId]);
+    void (async () => {
+      const ok = await saveLeadContacted(leadId, next).catch(() => false);
+      if (!ok) {
+        showSavedLeadsStatus("Could not update contacted state right now.");
+        return;
+      }
+      contactedLeadsById[leadId] = next;
+      contactedButton.classList.toggle("is-on", next);
+      contactedButton.setAttribute("aria-pressed", next ? "true" : "false");
+      contactedButton.textContent = next ? "Contacted" : "Mark Contacted";
+      if (next) {
+        showSavedLeadsStatus("Lead marked as contacted. Booster updates may appear after a positive response.");
+      } else {
+        showSavedLeadsStatus("Lead marked as not contacted.");
+      }
+      await loadLeadNotifications({ limit: 20, unreadOnly: false, simulate: true });
+    })();
     return;
   }
 
@@ -1124,6 +1589,7 @@ confirmRemoveLeadButton?.addEventListener("click", () => {
     }
     const notifications = leadNotificationsMap();
     const statuses = leadStatusMap();
+    delete contactedLeadsById[item.id];
     delete notifications[key];
     delete statuses[key];
     saveLeadNotificationsMap(notifications);
@@ -1135,6 +1601,50 @@ confirmRemoveLeadButton?.addEventListener("click", () => {
 saveGoalTargetButton?.addEventListener("click", () => {
   saveGoalTarget();
   showSavedLeadsStatus("Goal target saved.");
+});
+savePreferencesButton?.addEventListener("click", () => {
+  const headline = profileHeadlineInput?.value || "";
+  const cvText = profileCvTextInput?.value || "";
+  void (async () => {
+    try {
+      const result = await saveUserProfile(headline, cvText);
+      const profile = result?.profile || {};
+      userPreferences = {
+        target_sectors: profile.target_sectors || "",
+        target_company_size: profile.target_company_size || "",
+        target_countries: profile.target_countries || "",
+        target_work_mode: profile.target_work_mode || "",
+      };
+      refreshDashboardPreferencesSummary();
+      refreshProfilePreferencesPreview();
+      showSavedLeadsStatus("Target picks saved.");
+    } catch {
+      showSavedLeadsStatus("Could not save picks right now.");
+    }
+  })();
+});
+saveProfileButton?.addEventListener("click", () => {
+  const headline = profileHeadlineInput?.value || "";
+  const cvText = profileCvTextInput?.value || "";
+  void (async () => {
+    try {
+      const result = await saveUserProfile(headline, cvText);
+      const profile = result?.profile || {};
+      userPreferences = {
+        target_sectors: profile.target_sectors || "",
+        target_company_size: profile.target_company_size || "",
+        target_countries: profile.target_countries || "",
+        target_work_mode: profile.target_work_mode || "",
+      };
+      refreshDashboardPreferencesSummary();
+      refreshProfilePreferencesPreview();
+      profileHeadlinePreview.textContent = profile.headline || "No headline yet.";
+      profileCvPreview.textContent = profile.cv_text || "No CV saved yet.";
+      showSavedLeadsStatus("Profile and CV saved.");
+    } catch {
+      showSavedLeadsStatus("Could not save profile right now.");
+    }
+  })();
 });
 sectorFilters?.addEventListener("click", (event) => {
   const chip = event.target.closest(".sector-filter-chip");
@@ -1169,6 +1679,9 @@ registerForm?.addEventListener("submit", async (event) => {
   }
   currentUserEmail = email || "guest";
   loadGoalTarget();
+  void loadUserPreferencesOnly();
+  void loadLeadNotifications({ limit: 20, unreadOnly: false, simulate: true });
+  startNotificationPolling();
   showAppShell();
 });
 loginForm?.addEventListener("submit", async (event) => {
@@ -1182,21 +1695,33 @@ loginForm?.addEventListener("submit", async (event) => {
   }
   currentUserEmail = email || "guest";
   loadGoalTarget();
+  void loadUserPreferencesOnly();
+  void loadLeadNotifications({ limit: 20, unreadOnly: false, simulate: true });
+  startNotificationPolling();
   showAppShell();
 });
 logoutButton?.addEventListener("click", async () => {
   await authRequest("/api/auth/logout", {});
   currentUserEmail = "guest";
   loadGoalTarget();
+  userPreferences = { target_sectors: "", target_company_size: "", target_countries: "", target_work_mode: "" };
+  refreshDashboardPreferencesSummary();
+  refreshProfilePreferencesPreview();
+  stopNotificationPolling();
+  leadNotifications = [];
+  updateNotificationBell(0);
   showAuthScreen();
 });
 applyTheme(getInitialTheme());
 applyContrastPreset(getInitialContrast());
 renderSectorFilters();
+refreshDashboardPreferencesSummary();
+refreshProfilePreferencesPreview();
 updateNotificationsToggleButton();
 loadGoalTarget();
 if (!localStorage.getItem(LEADS_NOTIFICATIONS_ENABLED_KEY)) {
-  setNotificationsEnabled(false);
+  // First-run default should be enabled so users can actually observe the notification UX.
+  setNotificationsEnabled(true);
 }
 setAuthTab("register");
 showAuthScreen();
