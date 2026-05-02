@@ -1,9 +1,10 @@
 from models import Company, Employee, Lead
+from paths import get_app_db_path
 from repository import Repository
 
 
 def bootstrap() -> None:
-    repo = Repository("app.db")
+    repo = Repository(str(get_app_db_path()))
     repo.init_db()
 
     company = Company(name="Acme Labs", domain="acme.com")

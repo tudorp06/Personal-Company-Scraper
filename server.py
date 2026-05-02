@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import threading
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from http import HTTPStatus
@@ -12,14 +13,22 @@ from urllib.parse import parse_qs, urlparse
 
 from company_directory import CompanyDirectoryService
 from models import User
+from paths import (
+    get_app_db_path,
+    get_company_cache_db_path,
+    get_curated_leaders_path,
+    get_dotenv_path,
+    get_frontend_dir,
+    get_seed_companies_path,
+)
 from repository import Repository
 
 ROOT_DIR = Path(__file__).resolve().parent
-FRONTEND_DIR = ROOT_DIR / "frontend"
-CURATED_LEADERS_PATH = ROOT_DIR / "curated_company_leaders.json"
+FRONTEND_DIR = get_frontend_dir()
+CURATED_LEADERS_PATH = get_curated_leaders_path()
 
 def _load_dotenv() -> None:
-    env_path = ROOT_DIR / ".env"
+    env_path = get_dotenv_path()
     if not env_path.exists():
         return
     for raw_line in env_path.read_text(encoding="utf-8").splitlines():
@@ -93,15 +102,17 @@ def _match_curated_leaders(company_name: str, company_domain: str) -> list[dict]
 
 directory_service = CompanyDirectoryService(
     brandfetch_client_id=os.getenv("BRANDFETCH_CLIENT_ID"),
+    cache_db_path=str(get_company_cache_db_path()),
+    seed_json_path=str(get_seed_companies_path()),
 )
-repository = Repository(str(ROOT_DIR / "app.db"))
+repository = Repository(str(get_app_db_path()))
 repository.init_db()
 SESSION_COOKIE_NAME = "session_id"
 
 
 class AppHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, directory=str(ROOT_DIR), **kwargs)
+        super().__init__(*args, directory=str(FRONTEND_DIR.parent), **kwargs)
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
@@ -121,8 +132,8 @@ class AppHandler(SimpleHTTPRequestHandler):
             return self._handle_get_user_profile()
         if parsed.path == "/api/user/lead-notes":
             return self._handle_list_user_lead_notes()
-        if parsed.path == "/api/user/lead-contacted":
-            return self._handle_list_user_lead_contacted()
+        if parsed.path == "/api/user/lead-status":
+            return self._handle_list_user_lead_statuses()
         if parsed.path == "/api/user/lead-notifications":
             return self._handle_list_user_lead_notifications(parsed.query)
 
@@ -142,10 +153,12 @@ class AppHandler(SimpleHTTPRequestHandler):
             return self._handle_upsert_user_profile()
         if parsed.path == "/api/user/lead-notes":
             return self._handle_upsert_user_lead_note()
-        if parsed.path == "/api/user/lead-contacted":
-            return self._handle_upsert_user_lead_contacted()
+        if parsed.path == "/api/user/lead-status":
+            return self._handle_upsert_user_lead_status()
         if parsed.path == "/api/user/lead-notifications/read":
             return self._handle_mark_user_lead_notifications_read()
+        if parsed.path == "/api/user/lead-notifications/test":
+            return self._handle_create_test_user_lead_notification()
         self.send_error(HTTPStatus.NOT_FOUND, "Not Found")
 
     def do_DELETE(self) -> None:
@@ -416,14 +429,14 @@ class AppHandler(SimpleHTTPRequestHandler):
         repository.delete_saved_employer_by_id_for_user(user.user_id, saved_employer_id=saved_employer_id)
         return self._send_json({"ok": True})
 
-    def _handle_list_user_lead_contacted(self) -> None:
+    def _handle_list_user_lead_statuses(self) -> None:
         user = self._current_user()
         if not user:
             return self._send_status_json(HTTPStatus.UNAUTHORIZED, {"error": "not authenticated"})
-        items = repository.list_user_lead_contacted(user.user_id)
+        items = repository.list_user_lead_statuses(user.user_id)
         return self._send_json({"items": items})
 
-    def _handle_upsert_user_lead_contacted(self) -> None:
+    def _handle_upsert_user_lead_status(self) -> None:
         user = self._current_user()
         if not user:
             return self._send_status_json(HTTPStatus.UNAUTHORIZED, {"error": "not authenticated"})
@@ -431,9 +444,11 @@ class AppHandler(SimpleHTTPRequestHandler):
         saved_employer_id = str(data.get("saved_employer_id", "")).strip()
         if not saved_employer_id:
             return self._send_status_json(HTTPStatus.BAD_REQUEST, {"error": "saved_employer_id required"})
-        is_contacted = bool(data.get("is_contacted", False))
-        repository.set_user_lead_contacted(user.user_id, saved_employer_id=saved_employer_id, is_contacted=is_contacted)
-        return self._send_json({"ok": True, "saved_employer_id": saved_employer_id, "is_contacted": is_contacted})
+        lead_status = str(data.get("lead_status", "")).strip().lower()
+        if lead_status not in {"hot", "follow-up", "cv"}:
+            lead_status = "hot"
+        repository.set_user_lead_status(user.user_id, saved_employer_id=saved_employer_id, lead_status=lead_status)
+        return self._send_json({"ok": True, "saved_employer_id": saved_employer_id, "lead_status": lead_status})
 
     def _handle_list_user_lead_notifications(self, raw_query: str) -> None:
         user = self._current_user()
@@ -455,7 +470,7 @@ class AppHandler(SimpleHTTPRequestHandler):
         if simulation_meta:
             payload["eligibility"] = {
                 "saved_count": int(simulation_meta.get("saved_count") or 0),
-                "contacted_count": int(simulation_meta.get("contacted_count") or 0),
+                "follow_up_count": int(simulation_meta.get("follow_up_count") or 0),
                 "eligible_count": int(simulation_meta.get("eligible_count") or 0),
                 "created_count": int(simulation_meta.get("created_count") or 0),
                 "fallback_created": bool(simulation_meta.get("fallback_created")),
@@ -480,6 +495,24 @@ class AppHandler(SimpleHTTPRequestHandler):
         cleaned_ids = [str(item).strip() for item in ids if str(item).strip()]
         updated = repository.mark_user_lead_notifications_read(user.user_id, cleaned_ids)
         return self._send_json({"ok": True, "updated": updated})
+
+    def _handle_create_test_user_lead_notification(self) -> None:
+        user = self._current_user()
+        if not user:
+            return self._send_status_json(HTTPStatus.UNAUTHORIZED, {"error": "not authenticated"})
+
+        created = _create_test_notification_for_user(user.user_id)
+        if not created:
+            return self._send_status_json(
+                HTTPStatus.BAD_REQUEST,
+                {
+                    "error": (
+                        "No eligible leads for test notification. "
+                        "Save at least one lead and set it to Follow-up first."
+                    )
+                },
+            )
+        return self._send_json({"ok": True, "message": "Test notification created.", "notification_id": created})
 
 
 def _build_company_insights(name: str, domain: str, country: str) -> dict:
@@ -797,8 +830,12 @@ def _session_expiry_iso(days: int = 14) -> str:
 
 
 def _create_booster_updates_for_user(user_id: str) -> dict:
-    contacted_items = repository.list_user_lead_contacted(user_id)
-    contacted_ids = {item["saved_employer_id"] for item in contacted_items if int(item.get("is_contacted") or 0) == 1}
+    status_items = repository.list_user_lead_statuses(user_id)
+    follow_up_ids = {
+        str(item.get("saved_employer_id") or "").strip()
+        for item in status_items
+        if str(item.get("lead_status") or "").strip().lower() == "follow-up"
+    }
     saved_items = repository.list_saved_employers_for_user(user_id)
     saved_by_id = {}
     for lead in saved_items:
@@ -806,18 +843,18 @@ def _create_booster_updates_for_user(user_id: str) -> dict:
         if not lead_id:
             continue
         saved_by_id[lead_id] = lead
-    eligible_ids = [lead_id for lead_id in saved_by_id if lead_id in contacted_ids]
+    eligible_ids = [lead_id for lead_id in saved_by_id if lead_id in follow_up_ids]
     summary = {
         "saved_count": len(saved_by_id),
-        "contacted_count": len(contacted_ids),
+        "follow_up_count": len(follow_up_ids),
         "eligible_count": len(eligible_ids),
         "created_count": 0,
         "fallback_created": False,
         "status_message": "",
     }
     if not eligible_ids:
-        if saved_by_id and not contacted_ids:
-            summary["status_message"] = "No contacted leads yet. Mark a saved lead as Contacted to receive booster updates."
+        if saved_by_id and not follow_up_ids:
+            summary["status_message"] = "No Follow-up leads yet. Set a saved lead to Follow-up to receive booster updates."
         elif not saved_by_id:
             summary["status_message"] = "No saved leads yet. Save leads to unlock booster updates."
         return summary
@@ -864,6 +901,7 @@ def _create_booster_updates_for_user(user_id: str) -> dict:
             reason=reason,
             cta_text="Great time to follow up",
             company_name=str(lead.get("company_name") or ""),
+            company_logo=str(lead.get("company_logo") or ""),
             employer_name=str(lead.get("employer_name") or ""),
         )
         if created:
@@ -887,6 +925,7 @@ def _create_booster_updates_for_user(user_id: str) -> dict:
                 reason="Quick check-in moment: this lead still looks warm for follow-up.",
                 cta_text="Send a short follow-up message",
                 company_name=str(lead.get("company_name") or ""),
+                company_logo=str(lead.get("company_logo") or ""),
                 employer_name=str(lead.get("employer_name") or ""),
             )
             if fallback_created:
@@ -894,16 +933,78 @@ def _create_booster_updates_for_user(user_id: str) -> dict:
                 summary["fallback_created"] = True
 
     if summary["created_count"] == 0 and unread_existing == 0:
-        summary["status_message"] = "No fresh lead responses yet. Keep a few leads marked Contacted to increase update chances."
+        summary["status_message"] = "No fresh lead responses yet. Keep a few leads in Follow-up to increase update chances."
     return summary
 
 
+def _create_test_notification_for_user(user_id: str) -> str | None:
+    status_items = repository.list_user_lead_statuses(user_id)
+    follow_up_ids = {
+        str(item.get("saved_employer_id") or "").strip()
+        for item in status_items
+        if str(item.get("lead_status") or "").strip().lower() == "follow-up"
+    }
+    if not follow_up_ids:
+        return None
+
+    saved_items = repository.list_saved_employers_for_user(user_id)
+    eligible_items = []
+    for lead in saved_items:
+        lead_id = str(lead.get("id") or "").strip()
+        if not lead_id:
+            continue
+        if lead_id in follow_up_ids:
+            eligible_items.append(lead)
+    if not eligible_items:
+        return None
+
+    lead = sorted(eligible_items, key=lambda item: str(item.get("created_at") or ""))[0]
+    lead_id = str(lead.get("id") or "").strip()
+    now_iso = datetime.now(timezone.utc).isoformat()
+    event_key = f"test:{lead_id}:{now_iso}"
+    notification_id = sha256(f"{user_id}:{event_key}".encode("utf-8")).hexdigest()[:32]
+    created = repository.create_user_lead_notification(
+        notification_id=notification_id,
+        user_id=user_id,
+        saved_employer_id=lead_id,
+        event_key=event_key,
+        title="Test lead update",
+        reason="Manual test notification created for reliability verification.",
+        cta_text="If you see this, bell and toast wiring works.",
+        company_name=str(lead.get("company_name") or ""),
+        company_logo=str(lead.get("company_logo") or ""),
+        employer_name=str(lead.get("employer_name") or ""),
+    )
+    if created:
+        return notification_id
+    return None
+
+
+_active_http_server: ThreadingHTTPServer | None = None
+_active_http_server_lock = threading.Lock()
+
+
 def run(host: str = "127.0.0.1", port: int = 5500) -> None:
-    server = ThreadingHTTPServer((host, port), AppHandler)
+    global _active_http_server
+    httpd = ThreadingHTTPServer((host, port), AppHandler)
+    with _active_http_server_lock:
+        _active_http_server = httpd
     print(f"Server running at http://{host}:{port}")
     print(f"Frontend: http://{host}:{port}/")
     print(f"API: http://{host}:{port}/api/company-search?q=arobs&country=ro")
-    server.serve_forever()
+    try:
+        httpd.serve_forever()
+    finally:
+        with _active_http_server_lock:
+            _active_http_server = None
+
+
+def stop_http_server() -> None:
+    """Stop the background HTTP server (safe to call from another thread)."""
+    with _active_http_server_lock:
+        inst = _active_http_server
+    if inst is not None:
+        inst.shutdown()
 
 
 if __name__ == "__main__":

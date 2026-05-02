@@ -9,15 +9,19 @@ const authMessage = document.getElementById("auth-message");
 const logoutButton = document.getElementById("logout-button");
 const dashboardToggleButton = document.getElementById("dashboard-toggle");
 const profileToggleButton = document.getElementById("profile-toggle");
-const contrastToggleButton = document.getElementById("contrast-toggle");
 const homeView = document.getElementById("home-view");
 const dashboardView = document.getElementById("dashboard-view");
 const profileView = document.getElementById("profile-view");
 const savedLeadsList = document.getElementById("saved-leads-list");
 const refreshSavedLeadsButton = document.getElementById("refresh-saved-leads");
 const notificationsToggleButton = document.getElementById("notifications-toggle");
+const testNotificationButton = document.getElementById("test-notification-button");
 const notificationBellButton = document.getElementById("notification-bell");
 const notificationBellCount = document.getElementById("notification-bell-count");
+const notificationPanel = document.getElementById("notification-panel");
+const notificationList = document.getElementById("notification-list");
+const notificationEmpty = document.getElementById("notification-empty");
+const notificationMarkAllButton = document.getElementById("notification-mark-all");
 const boosterToastStack = document.getElementById("booster-toast-stack");
 const resetSavedLeadsButton = document.getElementById("reset-saved-leads");
 const savedLeadsStatus = document.getElementById("saved-leads-status");
@@ -82,8 +86,8 @@ let pendingRemoveLead = null;
 let currentUserEmail = "guest";
 let lastLoadedSavedLeads = [];
 let leadNotesById = {};
-let contactedLeadsById = {};
 let leadNotifications = [];
+let notificationPanelOpen = false;
 let shownToastNotificationIds = {};
 let lastNotificationStatusMessage = "";
 let notificationPollTimer = null;
@@ -102,7 +106,6 @@ const LEADS_STATUS_MAP_KEY = "leads_status_map";
 const BOOSTER_TOAST_LIMIT = 2;
 const BRANDFETCH_CLIENT_ID = "1id6iCSRkbc4cqe2MBu";
 const LEAD_SECTORS = ["All", "BigTech", "Tech", "Economics", "Properties", "CyberSec", "Graphic Design"];
-const CONTRAST_PRESETS = ["default", "high"];
 const FALLBACK_COMPANIES = [
   { name: "AROBS", domain: "arobs.com", country: "RO", source: "fallback", logo_url: "" },
   { name: "NTT DATA Romania", domain: "ro.nttdata.com", country: "RO", source: "fallback", logo_url: "" },
@@ -217,27 +220,29 @@ async function saveLeadNote(savedEmployerId, noteText) {
   return response.ok;
 }
 
-async function fetchContactedLeads() {
-  const response = await fetch("/api/user/lead-contacted");
-  if (!response.ok) throw new Error(`Lead contacted failed with ${response.status}`);
+async function fetchLeadStatuses() {
+  const response = await fetch("/api/user/lead-status");
+  if (!response.ok) throw new Error(`Lead status failed with ${response.status}`);
   const payload = await response.json();
   const items = Array.isArray(payload.items) ? payload.items : [];
   const map = {};
   items.forEach((item) => {
     if (item.saved_employer_id) {
-      map[item.saved_employer_id] = Boolean(item.is_contacted);
+      const status = String(item.lead_status || "").trim().toLowerCase();
+      map[item.saved_employer_id] = ["hot", "follow-up", "cv"].includes(status) ? status : "hot";
     }
   });
   return map;
 }
 
-async function saveLeadContacted(savedEmployerId, isContacted) {
-  const response = await fetch("/api/user/lead-contacted", {
+async function saveLeadStatus(savedEmployerId, leadStatus) {
+  const safeStatus = ["hot", "follow-up", "cv"].includes(leadStatus) ? leadStatus : "hot";
+  const response = await fetch("/api/user/lead-status", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       saved_employer_id: savedEmployerId || "",
-      is_contacted: Boolean(isContacted),
+      lead_status: safeStatus,
     }),
   });
   return response.ok;
@@ -254,15 +259,6 @@ async function fetchLeadNotifications(options = {}) {
   return response.json();
 }
 
-async function markLeadNotificationsRead(ids) {
-  const response = await fetch("/api/user/lead-notifications/read", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ids: Array.isArray(ids) ? ids : [] }),
-  });
-  return response.ok;
-}
-
 async function markAllLeadNotificationsRead() {
   const response = await fetch("/api/user/lead-notifications/read", {
     method: "POST",
@@ -270,6 +266,16 @@ async function markAllLeadNotificationsRead() {
     body: JSON.stringify({ mark_all: true }),
   });
   return response.ok;
+}
+
+async function createTestLeadNotification() {
+  const response = await fetch("/api/user/lead-notifications/test", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  const payload = await response.json().catch(() => ({}));
+  return { ok: response.ok, status: response.status, data: payload };
 }
 
 async function resolveSession() {
@@ -283,7 +289,7 @@ async function resolveSession() {
     currentUserEmail = payload?.user?.email || "guest";
     loadGoalTarget();
     void loadUserPreferencesOnly();
-    void loadLeadNotifications({ limit: 20, unreadOnly: false, simulate: true });
+    void refreshNotifications({ limit: 20, unreadOnly: false, simulate: true });
     startNotificationPolling();
     showAppShell();
   } catch {
@@ -305,10 +311,6 @@ function goalTargetStorageKey() {
   return `goal_target_${currentUserEmail || "guest"}`;
 }
 
-function contrastStorageKey() {
-  return CONTRAST_STORAGE_KEY;
-}
-
 function getInitialTheme() {
   const savedTheme = localStorage.getItem(THEME_STORAGE_KEY);
   if (savedTheme === "dark" || savedTheme === "light") {
@@ -317,31 +319,11 @@ function getInitialTheme() {
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
-function applyContrastPreset(preset) {
-  const safePreset = preset === "high" ? "high" : "default";
-  document.documentElement.setAttribute("data-contrast", safePreset);
-  if (contrastToggleButton) {
-    contrastToggleButton.textContent = safePreset === "high" ? "Contrast: High" : "Contrast: Default";
-  }
-}
-
-function getInitialContrast() {
-  const stored = localStorage.getItem(contrastStorageKey());
-  return stored === "high" ? "high" : "default";
-}
-
 function toggleTheme() {
   const currentTheme = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
   const nextTheme = currentTheme === "dark" ? "light" : "dark";
   localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
   applyTheme(nextTheme);
-}
-
-function toggleContrast() {
-  const current = document.documentElement.getAttribute("data-contrast") === "high" ? "high" : "default";
-  const next = current === "high" ? "default" : "high";
-  localStorage.setItem(contrastStorageKey(), next);
-  applyContrastPreset(next);
 }
 
 function createSuggestionItem(company) {
@@ -513,6 +495,120 @@ function updateNotificationBell(unreadCount) {
   notificationBellCount.classList.toggle("hidden", safeCount <= 0);
 }
 
+function formatNotificationTime(value) {
+  if (!value) return "Just now";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Just now";
+  const diffMs = Date.now() - date.getTime();
+  const diffMin = Math.max(1, Math.floor(diffMs / 60000));
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHours = Math.floor(diffMin / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  return `${diffDays}d ago`;
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function resolveNotificationLogoUrl(notification) {
+  if (!notification || typeof notification !== "object") return "";
+  const directLogo = String(notification.company_logo || "").trim();
+  if (directLogo) return directLogo;
+
+  const savedEmployerId = String(notification.saved_employer_id || "").trim();
+  if (savedEmployerId) {
+    const savedLead = (lastLoadedSavedLeads || []).find((item) => String(item?.id || "").trim() === savedEmployerId);
+    if (savedLead) {
+      const savedLeadLogo = String(savedLead.company_logo || "").trim();
+      if (savedLeadLogo) return savedLeadLogo;
+      const savedLeadDomain = String(savedLead.company_domain || "").trim();
+      if (savedLeadDomain) return brandfetchLogoUrl(savedLeadDomain);
+    }
+  }
+
+  const domain = String(notification.company_domain || "").trim();
+  if (domain) return brandfetchLogoUrl(domain);
+  return "";
+}
+
+function notificationLogoMarkup(notification, companyName) {
+  const safeCompany = String(companyName || "Company").trim() || "Company";
+  const safeName = escapeHtml(safeCompany);
+  const safeUrl = escapeHtml(resolveNotificationLogoUrl(notification));
+  const fallbackIconMarkup = `
+    <span class="notification-company-logo notification-company-logo-fallback" aria-hidden="true">
+      <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+        <path d="M4 21h16v-2H4v2Zm2-3h4V5H6v13Zm8 0h4V9h-4v9ZM11 18h2v-6h-2v6Zm0-8h2V7h-2v3Z"></path>
+      </svg>
+    </span>
+  `;
+  if (safeUrl) {
+    return `
+      <span class="notification-company-logo-wrap">
+        <img
+          class="notification-company-logo"
+          src="${safeUrl}"
+          alt="${safeName} logo"
+          loading="lazy"
+          onerror="this.onerror=null;this.style.display='none';this.nextElementSibling.style.display='inline-flex';"
+        />
+        <span class="notification-company-logo notification-company-logo-fallback" aria-hidden="true" style="display:none;">
+          <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+            <path d="M4 21h16v-2H4v2Zm2-3h4V5H6v13Zm8 0h4V9h-4v9ZM11 18h2v-6h-2v6Zm0-8h2V7h-2v3Z"></path>
+          </svg>
+        </span>
+      </span>
+    `;
+  }
+  return fallbackIconMarkup;
+}
+
+function renderNotificationPanel() {
+  if (!notificationList || !notificationEmpty || !notificationMarkAllButton) return;
+  notificationList.innerHTML = "";
+  const items = Array.isArray(leadNotifications) ? leadNotifications : [];
+  notificationEmpty.classList.toggle("hidden", items.length > 0);
+  items.slice(0, 12).forEach((item) => {
+    const row = document.createElement("li");
+    const isUnread = !item.is_read;
+    const companyName = item.company_name || "Company";
+    const safeCompanyName = escapeHtml(companyName);
+    const safeEmployerName = escapeHtml(item.employer_name || "Lead");
+    row.className = `notification-item ${isUnread ? "is-unread" : ""}`;
+    row.innerHTML = `
+      <p class="notification-item-title">${item.title || "Lead update"}</p>
+      <p class="notification-item-meta">
+        <span class="notification-company-text">${safeCompanyName}</span>
+        ${notificationLogoMarkup(item, companyName)}
+      </p>
+      <p class="notification-item-employer">${safeEmployerName}</p>
+      <p class="notification-item-reason">${item.reason || "Positive update received."}</p>
+      <p class="notification-item-time">${formatNotificationTime(item.created_at)}</p>
+    `;
+    notificationList.appendChild(row);
+  });
+  const unreadCount = items.filter((item) => !item.is_read).length;
+  notificationMarkAllButton.disabled = unreadCount === 0;
+}
+
+function setNotificationPanelOpen(open) {
+  notificationPanelOpen = Boolean(open);
+  notificationPanel?.classList.toggle("hidden", !notificationPanelOpen);
+  notificationBellButton?.setAttribute("aria-expanded", notificationPanelOpen ? "true" : "false");
+}
+
+async function refreshNotifications(options = {}) {
+  await loadLeadNotifications(options);
+  if (notificationPanelOpen) renderNotificationPanel();
+}
+
 function dismissToastCard(toast) {
   if (!toast) return;
   toast.classList.add("is-exit");
@@ -528,9 +624,16 @@ function renderBoosterToast(notification) {
   const toast = document.createElement("article");
   toast.className = "booster-toast-card";
   toast.dataset.notificationId = notification.id || "";
+  const companyName = notification.company_name || "Company";
+  const safeCompanyName = escapeHtml(companyName);
+  const safeEmployerName = escapeHtml(notification.employer_name || "Lead");
   toast.innerHTML = `
     <p class="booster-toast-title">${notification.title || "Lead update"}</p>
-    <p class="booster-toast-company">${notification.employer_name || "Lead"} · ${notification.company_name || ""}</p>
+    <p class="booster-toast-company">
+      <span class="notification-company-text">${safeCompanyName}</span>
+      ${notificationLogoMarkup(notification, companyName)}
+    </p>
+    <p class="booster-toast-employer">${safeEmployerName}</p>
     <p class="booster-toast-reason">${notification.reason || "Positive update received"}</p>
     <p class="booster-toast-cta">${notification.cta_text || "Great time to follow up"}</p>
   `;
@@ -542,12 +645,15 @@ async function loadLeadNotifications(options = {}) {
   try {
     const payload = await fetchLeadNotifications(options);
     const items = Array.isArray(payload.items) ? payload.items : [];
+    const forceToastIds = new Set(Array.isArray(options.forceToastIds) ? options.forceToastIds : []);
     leadNotifications = items;
     const unreadCount = Math.max(0, Number(payload.unread_count) || 0);
     updateNotificationBell(unreadCount);
     items.forEach((item) => {
       const notificationId = item.id || "";
-      if (!notificationId || item.is_read || shownToastNotificationIds[notificationId]) return;
+      if (!notificationId || item.is_read) return;
+      const shouldForceToast = forceToastIds.has(notificationId);
+      if (shownToastNotificationIds[notificationId] && !shouldForceToast) return;
       shownToastNotificationIds[notificationId] = true;
       renderBoosterToast(item);
     });
@@ -561,7 +667,7 @@ async function loadLeadNotifications(options = {}) {
       lastNotificationStatusMessage = "";
     }
   } catch {
-    updateNotificationBell(0);
+    // Keep current bell state on transient failures.
   }
 }
 
@@ -575,12 +681,29 @@ function stopNotificationPolling() {
 function startNotificationPolling() {
   stopNotificationPolling();
   notificationPollTimer = setInterval(() => {
-    void loadLeadNotifications({ limit: 20, unreadOnly: false, simulate: true });
+    void refreshNotifications({ limit: 20, unreadOnly: false, simulate: true });
   }, 45000);
 }
 
 function leadNotificationKey(item) {
-  return `${item.company_name || ""}|${item.employer_name || ""}|${item.employer_role || ""}`.toLowerCase();
+  if (!item || typeof item !== "object") return "";
+  const candidates = [
+    item.id,
+    item.saved_employer_id,
+    item.savedEmployerId,
+    item.company_name,
+    item.company_domain,
+    item.employer_name,
+    item.employer_role,
+    item.employer_email,
+    item.created_at,
+  ]
+    .map((value) => String(value || "").trim().toLowerCase())
+    .filter(Boolean);
+  if (candidates.length > 0) {
+    return candidates.join("|");
+  }
+  return "";
 }
 
 function leadNotificationsMap() {
@@ -643,14 +766,8 @@ function saveLeadStatusMap(map) {
 
 function leadStatusFor(item) {
   const map = leadStatusMap();
-  return map[leadNotificationKey(item)] || "hot";
-}
-
-function setLeadStatus(item, status) {
-  const safeStatus = ["hot", "follow-up", "cv"].includes(status) ? status : "hot";
-  const map = leadStatusMap();
-  map[leadNotificationKey(item)] = safeStatus;
-  saveLeadStatusMap(map);
+  const status = map[leadNotificationKey(item)] || "hot";
+  return ["hot", "follow-up", "cv"].includes(status) ? status : "hot";
 }
 
 function leadAlertForScore(scoreRaw) {
@@ -658,6 +775,12 @@ function leadAlertForScore(scoreRaw) {
   if (score >= 85) return { badge: "High", label: "High priority", tier: "high" };
   if (score >= 70) return { badge: "Medium", label: "Strong lead", tier: "mid" };
   return { badge: "Low", label: "Watch lead", tier: "low" };
+}
+
+function getSavedLeadId(item) {
+  if (!item || typeof item !== "object") return "";
+  const raw = item.id ?? item.saved_employer_id ?? item.savedEmployerId ?? "";
+  return String(raw).trim();
 }
 
 async function clearSavedLeadsOnServer() {
@@ -809,9 +932,14 @@ async function loadSavedLeads() {
       leadNotesById = {};
     }
     try {
-      contactedLeadsById = await fetchContactedLeads();
+      const serverStatuses = await fetchLeadStatuses();
+      const statusMap = leadStatusMap();
+      Object.keys(serverStatuses).forEach((leadId) => {
+        statusMap[leadId] = serverStatuses[leadId];
+      });
+      saveLeadStatusMap(statusMap);
     } catch {
-      contactedLeadsById = {};
+      // Keep local statuses if status API fails.
     }
     const response = await fetch("/api/user/saved-employers");
     if (!response.ok) {
@@ -837,17 +965,17 @@ async function loadSavedLeads() {
       return;
     }
     const notifyMasterOn = notificationsEnabled();
-    items.forEach((item) => {
+    items.forEach((item, index) => {
       const row = document.createElement("li");
       row.className = "saved-lead-item";
       const notifyOn = notifyMasterOn && isLeadNotificationOn(item);
-    const key = leadNotificationKey(item);
+      const key = leadNotificationKey(item) || `lead-row-${index}`;
       const status = leadStatusFor(item);
       const alert = leadAlertForScore(item.lead_score);
-      const savedNoteText = leadNotesById[item.id] || "";
+      const leadId = getSavedLeadId(item);
+      const savedNoteText = leadNotesById[leadId] || "";
       const trimmedSavedNoteText = savedNoteText.trim();
       const hasSavedNote = Boolean(trimmedSavedNoteText);
-      const isContacted = Boolean(contactedLeadsById[item.id]);
       row.innerHTML = `
         <div class="saved-lead-item-head">
           <p class="saved-lead-title">
@@ -855,15 +983,15 @@ async function loadSavedLeads() {
             ${item.employer_name} · ${item.employer_role}
           </p>
           <div class="saved-lead-actions-right">
-            <button type="button" class="saved-lead-notify ${notifyOn ? "is-on" : ""}" data-lead-key="${key}" ${notifyMasterOn ? "" : "disabled"}>
+            <button type="button" class="saved-lead-action-button saved-lead-notify ${notifyOn ? "is-on" : ""}" data-lead-key="${key}" ${notifyMasterOn ? "" : "disabled"}>
               ${notifyOn ? "Notify On" : "Notify Off"}
             </button>
-            <button type="button" class="saved-lead-export" data-lead-id="${item.id || ""}">Export CSV</button>
+            <button type="button" class="saved-lead-action-button saved-lead-export" data-lead-id="${leadId}">Export CSV</button>
             <button
               type="button"
-              class="saved-lead-delete"
+              class="saved-lead-action-button saved-lead-delete"
               data-delete-lead="${key}"
-              data-lead-id="${item.id || ""}"
+              data-lead-id="${leadId}"
               data-employer-name="${item.employer_name || ""}"
               data-employer-role="${item.employer_role || ""}"
               data-company-name="${item.company_name || ""}"
@@ -875,31 +1003,23 @@ async function loadSavedLeads() {
         <p class="saved-lead-meta">${item.company_name} · score ${item.lead_score}</p>
         <div class="saved-lead-controls">
           <span class="saved-lead-sector">${item.sector}</span>
-          <button
-            type="button"
-            class="saved-lead-contacted ${isContacted ? "is-on" : ""}"
-            data-contacted-id="${item.id || ""}"
-            aria-pressed="${isContacted ? "true" : "false"}"
-          >
-            ${isContacted ? "Contacted" : "Mark Contacted"}
-          </button>
           <div class="saved-lead-status-chips" role="group" aria-label="Lead status">
             <button type="button" class="saved-lead-status-chip ${status === "hot" ? "is-active" : ""}" data-lead-key="${key}" data-status="hot" aria-pressed="${status === "hot"}">Hot</button>
             <button type="button" class="saved-lead-status-chip ${status === "follow-up" ? "is-active" : ""}" data-lead-key="${key}" data-status="follow-up" aria-pressed="${status === "follow-up"}">Follow-up</button>
             <button type="button" class="saved-lead-status-chip ${status === "cv" ? "is-active" : ""}" data-lead-key="${key}" data-status="cv" aria-pressed="${status === "cv"}">CV</button>
           </div>
         </div>
-        <div class="saved-lead-note-wrap ${hasSavedNote ? "is-display-mode" : "is-editor-mode"}" data-note-wrap-id="${item.id || ""}">
-          <label class="saved-lead-note-label" for="lead-note-${item.id || key}">Private note</label>
+        <div class="saved-lead-note-wrap ${hasSavedNote ? "is-display-mode" : "is-editor-mode"}" data-note-wrap-id="${leadId}">
+          <label class="saved-lead-note-label" for="lead-note-${leadId || key}">Private note</label>
           <div class="saved-lead-note-editor">
-            <textarea id="lead-note-${item.id || key}" class="saved-lead-note-input" data-note-lead-id="${item.id || ""}" placeholder="Private note for this lead...">${savedNoteText}</textarea>
-            <button type="button" class="saved-lead-note-save" data-note-save-id="${item.id || ""}">Save Note</button>
+            <textarea id="lead-note-${leadId || key}" class="saved-lead-note-input" data-note-lead-id="${leadId}" placeholder="Private note for this lead...">${savedNoteText}</textarea>
+            <button type="button" class="saved-lead-note-save" data-note-save-id="${leadId}">Save Note</button>
           </div>
           <div class="saved-lead-note-display ${hasSavedNote ? "" : "hidden"}">
-            <p class="saved-lead-note-preview ${hasSavedNote ? "" : "hidden"}" data-note-preview-id="${item.id || ""}">
+            <p class="saved-lead-note-preview ${hasSavedNote ? "" : "hidden"}" data-note-preview-id="${leadId}">
               Instruction: ${trimmedSavedNoteText}
             </p>
-            <button type="button" class="saved-lead-note-edit" data-note-edit-id="${item.id || ""}">Edit note</button>
+            <button type="button" class="saved-lead-note-edit" data-note-edit-id="${leadId}">Edit note</button>
           </div>
         </div>
       `;
@@ -933,10 +1053,14 @@ function setMainView(view) {
   }
   if (activeMainView === "dashboard") {
     void loadSavedLeads();
-    void loadLeadNotifications({ limit: 20, unreadOnly: false, simulate: true });
+    void refreshNotifications({ limit: 20, unreadOnly: false, simulate: true });
   }
   if (activeMainView === "profile") {
     void loadProfileView();
+    void refreshNotifications({ limit: 20, unreadOnly: false, simulate: true });
+  }
+  if (activeMainView === "home") {
+    void refreshNotifications({ limit: 20, unreadOnly: false, simulate: true });
   }
 }
 
@@ -1022,13 +1146,30 @@ function renderOutreachPlan(company) {
     ? `${topLead.employee.firstName} ${topLead.employee.lastName} (${topLead.employee.role})`
     : "the strongest pathway contact";
   outreachPlanPanel.innerHTML = `
-    <article class="lead-readiness-card">
-      <p class="lead-readiness-title">Outreach Plan</p>
-      <p class="lead-role"><strong>Best first path:</strong> ${opener}</p>
-      <p class="lead-role"><strong>Message angle:</strong> mention how your profile/startup fits ${preferredSectors} and links to ${company.name}'s current collaboration channels.</p>
-      <p class="lead-role"><strong>Proof to attach:</strong> CV, one relevant project/case study, and a short integration idea.</p>
-      <p class="lead-role"><strong>Preferred channels:</strong> ${channels.join(" · ")}</p>
-      <p class="lead-role"><strong>Risk flags:</strong> if no response in 7 days, switch to alternate lead and adjust the pitch to concrete ROI.</p>
+    <article class="lead-readiness-card outreach-plan-card">
+      <p class="lead-readiness-title outreach-plan-title">Outreach Plan</p>
+      <p class="outreach-plan-subtitle">A clear first-touch sequence for ${company.name}.</p>
+      <div class="outreach-plan-steps">
+        <p class="outreach-plan-row">
+          <span class="outreach-plan-label">Best first path</span>
+          <span class="outreach-plan-value">${opener}</span>
+        </p>
+        <p class="outreach-plan-row">
+          <span class="outreach-plan-label">Message angle</span>
+          <span class="outreach-plan-value">Show how your profile/startup fits ${preferredSectors} and aligns with ${company.name}'s current collaboration channels.</span>
+        </p>
+        <p class="outreach-plan-row">
+          <span class="outreach-plan-label">Proof to attach</span>
+          <span class="outreach-plan-value">CV, one relevant project/case study, and a concise integration idea.</span>
+        </p>
+        <p class="outreach-plan-row">
+          <span class="outreach-plan-label">Preferred channels</span>
+          <span class="outreach-plan-value">${channels.join(" · ")}</span>
+        </p>
+      </div>
+      <div class="outreach-plan-note">
+        <strong>Risk flag:</strong> if no response in 7 days, switch to an alternate lead and refine the pitch around concrete ROI.
+      </div>
     </article>
   `;
 }
@@ -1388,15 +1529,53 @@ notificationsToggleButton?.addEventListener("click", () => {
 });
 notificationBellButton?.addEventListener("click", () => {
   void (async () => {
+    const nextOpen = !notificationPanelOpen;
+    setNotificationPanelOpen(nextOpen);
+    if (!nextOpen) return;
+    await refreshNotifications({ limit: 20, unreadOnly: false, simulate: true });
+    renderNotificationPanel();
+  })();
+});
+notificationMarkAllButton?.addEventListener("click", () => {
+  void (async () => {
     const unreadIds = leadNotifications.filter((item) => !item.is_read).map((item) => item.id).filter(Boolean);
-    if (unreadIds.length > 0) {
-      await markLeadNotificationsRead(unreadIds).catch(() => false);
-      leadNotifications = leadNotifications.map((item) => ({ ...item, is_read: true }));
-    } else {
-      await markAllLeadNotificationsRead().catch(() => false);
+    if (unreadIds.length === 0) return;
+    const ok = await markAllLeadNotificationsRead().catch(() => false);
+    if (!ok) {
+      showSavedLeadsStatus("Could not mark updates as read right now.");
+      return;
     }
+    leadNotifications = leadNotifications.map((item) => ({ ...item, is_read: true }));
     updateNotificationBell(0);
+    renderNotificationPanel();
     showSavedLeadsStatus("Lead updates marked as read.");
+  })();
+});
+document.addEventListener("click", (event) => {
+  if (!notificationPanelOpen) return;
+  const target = event.target;
+  if (!(target instanceof Element)) return;
+  if (notificationPanel?.contains(target) || notificationBellButton?.contains(target)) return;
+  setNotificationPanelOpen(false);
+});
+testNotificationButton?.addEventListener("click", () => {
+  void (async () => {
+    setNotificationsEnabled(true);
+    const result = await createTestLeadNotification().catch(() => ({ ok: false, data: {} }));
+    if (!result.ok) {
+      const message = String(result?.data?.error || "Could not create test notification.");
+      showSavedLeadsStatus(message);
+      return;
+    }
+    const notificationId = String(result?.data?.notification_id || "").trim();
+    await refreshNotifications({
+      limit: 20,
+      unreadOnly: false,
+      simulate: false,
+      forceToastIds: notificationId ? [notificationId] : [],
+    });
+    renderNotificationPanel();
+    showSavedLeadsStatus("Test notification created. Bell count and toast should be visible now.");
   })();
 });
 resetSavedLeadsButton?.addEventListener("click", async () => {
@@ -1408,7 +1587,7 @@ resetSavedLeadsButton?.addEventListener("click", async () => {
     return;
   }
   saveLeadNotificationsMap({});
-  contactedLeadsById = {};
+  saveLeadStatusMap({});
   showSavedLeadsStatus("Saved leads list was reset.");
   void loadSavedLeads();
 });
@@ -1492,6 +1671,16 @@ savedLeadsList?.addEventListener("click", (event) => {
     const map = leadStatusMap();
     map[key] = nextStatus;
     saveLeadStatusMap(map);
+    const item = lastLoadedSavedLeads.find((lead) => leadNotificationKey(lead) === key);
+    const leadId = getSavedLeadId(item);
+    if (leadId) {
+      void (async () => {
+        const ok = await saveLeadStatus(leadId, nextStatus).catch(() => false);
+        if (!ok) {
+          showSavedLeadsStatus("Could not sync lead status right now.");
+        }
+      })();
+    }
 
     const group = statusChip.closest(".saved-lead-status-chips");
     if (!group) return;
@@ -1501,31 +1690,6 @@ savedLeadsList?.addEventListener("click", (event) => {
       chip.classList.toggle("is-active", active);
       chip.setAttribute("aria-pressed", active ? "true" : "false");
     });
-    return;
-  }
-
-  const contactedButton = event.target.closest(".saved-lead-contacted");
-  if (contactedButton) {
-    const leadId = contactedButton.dataset.contactedId || "";
-    if (!leadId) return;
-    const next = !Boolean(contactedLeadsById[leadId]);
-    void (async () => {
-      const ok = await saveLeadContacted(leadId, next).catch(() => false);
-      if (!ok) {
-        showSavedLeadsStatus("Could not update contacted state right now.");
-        return;
-      }
-      contactedLeadsById[leadId] = next;
-      contactedButton.classList.toggle("is-on", next);
-      contactedButton.setAttribute("aria-pressed", next ? "true" : "false");
-      contactedButton.textContent = next ? "Contacted" : "Mark Contacted";
-      if (next) {
-        showSavedLeadsStatus("Lead marked as contacted. Booster updates may appear after a positive response.");
-      } else {
-        showSavedLeadsStatus("Lead marked as not contacted.");
-      }
-      await loadLeadNotifications({ limit: 20, unreadOnly: false, simulate: true });
-    })();
     return;
   }
 
@@ -1589,7 +1753,6 @@ confirmRemoveLeadButton?.addEventListener("click", () => {
     }
     const notifications = leadNotificationsMap();
     const statuses = leadStatusMap();
-    delete contactedLeadsById[item.id];
     delete notifications[key];
     delete statuses[key];
     saveLeadNotificationsMap(notifications);
@@ -1654,7 +1817,6 @@ sectorFilters?.addEventListener("click", (event) => {
   renderSectorFilters();
   void loadSavedLeads();
 });
-contrastToggleButton?.addEventListener("click", toggleContrast);
 themeToggle?.addEventListener("click", toggleTheme);
 showRegisterButton?.addEventListener("click", () => setAuthTab("register"));
 showLoginButton?.addEventListener("click", () => setAuthTab("login"));
@@ -1680,7 +1842,7 @@ registerForm?.addEventListener("submit", async (event) => {
   currentUserEmail = email || "guest";
   loadGoalTarget();
   void loadUserPreferencesOnly();
-  void loadLeadNotifications({ limit: 20, unreadOnly: false, simulate: true });
+  void refreshNotifications({ limit: 20, unreadOnly: false, simulate: true });
   startNotificationPolling();
   showAppShell();
 });
@@ -1696,7 +1858,7 @@ loginForm?.addEventListener("submit", async (event) => {
   currentUserEmail = email || "guest";
   loadGoalTarget();
   void loadUserPreferencesOnly();
-  void loadLeadNotifications({ limit: 20, unreadOnly: false, simulate: true });
+  void refreshNotifications({ limit: 20, unreadOnly: false, simulate: true });
   startNotificationPolling();
   showAppShell();
 });
@@ -1713,7 +1875,8 @@ logoutButton?.addEventListener("click", async () => {
   showAuthScreen();
 });
 applyTheme(getInitialTheme());
-applyContrastPreset(getInitialContrast());
+localStorage.removeItem(CONTRAST_STORAGE_KEY);
+document.documentElement.removeAttribute("data-contrast");
 renderSectorFilters();
 refreshDashboardPreferencesSummary();
 refreshProfilePreferencesPreview();

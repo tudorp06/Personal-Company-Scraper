@@ -40,45 +40,44 @@
 
     <div id="app-shell" class="hidden">
       <nav class="navbar">
-        <div class="brand-block">
-          <div class="brand-row">
-            <span class="brand-logo" aria-hidden="true">in</span>
-            <p class="brand">Linkedln Scraper <span class="beta-pill">BETA</span></p>
+        <div class="navbar-capsule">
+          <div class="brand-block">
+            <div class="brand-row">
+              <span class="brand-logo" aria-hidden="true">in</span>
+              <p class="brand">Linkedln Scraper <span class="beta-pill">BETA</span></p>
+            </div>
+            <p class="version">Open-source build by an aspiring AI engineer.</p>
           </div>
-          <p class="version">Open-source build by an aspiring AI engineer.</p>
-        </div>
-        <div class="nav-actions">
-          <button id="dashboard-toggle" class="dashboard-toggle" type="button">Saved Leads</button>
-          <button id="contrast-toggle" class="dashboard-toggle" type="button">Contrast: Default</button>
-          <button
-            id="notification-bell"
-            class="theme-toggle notification-bell"
-            type="button"
-            aria-label="Open lead updates"
-            title="Lead updates"
-          >
-            <span class="notification-bell-icon" aria-hidden="true">🔔</span>
-            <span id="notification-bell-count" class="notification-bell-count hidden">0</span>
-          </button>
-          <button id="logout-button" class="logout-button" type="button">Logout</button>
-          <button
-            id="theme-toggle"
-            class="theme-toggle"
-            type="button"
-            aria-label="Toggle dark mode"
-            title="Toggle dark mode"
-          >
-            <span class="toggle-icon" aria-hidden="true">◐</span>
-          </button>
-          <button
-            id="profile-toggle"
-            class="theme-toggle profile-toggle-icon"
-            type="button"
-            aria-label="Open profile"
-            title="Open profile"
-          >
-            <img class="profile-icon-image" src="/frontend/user-icon.svg" alt="" aria-hidden="true" />
-          </button>
+          <div class="nav-actions">
+            <button id="dashboard-toggle" class="dashboard-toggle nav-pill-button" type="button">Saved Leads</button>
+            <button
+              id="theme-toggle"
+              class="theme-toggle nav-icon-button"
+              type="button"
+              aria-label="Toggle dark mode"
+              title="Toggle dark mode"
+            >
+              <span class="toggle-icon" aria-hidden="true">◐</span>
+            </button>
+            <button id="logout-button" class="logout-button nav-pill-button" type="button">Logout</button>
+            <button id="notification-bell" class="theme-toggle notification-bell nav-icon-button" type="button" aria-label="Open lead updates" aria-expanded="false" aria-controls="notification-panel" title="Lead updates">
+              <span class="notification-bell-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                  <path d="M12 3.5a4.5 4.5 0 0 0-4.5 4.5v1.2c0 .95-.33 1.86-.95 2.58l-1.27 1.51a1.6 1.6 0 0 0 1.23 2.63h11a1.6 1.6 0 0 0 1.23-2.63l-1.27-1.51a4 4 0 0 1-.95-2.58V8A4.5 4.5 0 0 0 12 3.5Zm0 17a2.48 2.48 0 0 1-2.28-1.5h4.56A2.48 2.48 0 0 1 12 20.5Z"></path>
+                </svg>
+              </span>
+              <span id="notification-bell-count" class="notification-bell-count hidden">0</span>
+            </button>
+            <button
+              id="profile-toggle"
+              class="theme-toggle profile-toggle-icon nav-icon-button"
+              type="button"
+              aria-label="Open profile"
+              title="Open profile"
+            >
+              <img class="profile-icon-image" src="/frontend/user-icon.svg" alt="" aria-hidden="true" />
+            </button>
+          </div>
         </div>
       </nav>
       <main class="content">
@@ -164,7 +163,7 @@
             </div>
             <p id="goal-progress-text" class="saved-leads-status">0 / 10 completed this week</p>
           </section>
-          <section class="goal-tracker-card">
+          <section class="goal-tracker-card target-preferences-card">
             <p class="search-label">Target Preferences</p>
             <p id="dashboard-preferences-summary" class="saved-leads-status">No preferences saved yet.</p>
           </section>
@@ -172,6 +171,7 @@
             <p class="search-label">Saved Leads Dashboard</p>
             <div class="saved-leads-actions">
               <button id="notifications-toggle" class="refresh-saved-leads" type="button">Notifications Off</button>
+              <button id="test-notification-button" class="refresh-saved-leads" type="button">Test notification</button>
               <button id="refresh-saved-leads" class="refresh-saved-leads" type="button">Refresh</button>
               <button id="reset-saved-leads" class="reset-saved-leads" type="button">Reset List</button>
             </div>
@@ -234,6 +234,14 @@
         </section>
       </main>
     </div>
+    <section id="notification-panel" class="notification-panel hidden" aria-label="Recent notifications">
+      <header class="notification-panel-header">
+        <p class="notification-panel-title">Lead Updates</p>
+        <button id="notification-mark-all" type="button" class="notification-mark-all">Mark all as read</button>
+      </header>
+      <ul id="notification-list" class="notification-list"></ul>
+      <p id="notification-empty" class="notification-empty hidden">No notifications yet. New lead activity will appear here.</p>
+    </section>
     <div id="remove-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="remove-modal-title">
       <article class="modal-card">
         <p id="remove-modal-title" class="modal-title">Remove saved lead?</p>

@@ -3,3 +3,11 @@ __pycache__/
 *.pyc
 company_cache.db
 app.db
+
+# Local-only desktop / launcher (not for the remote repo)
+launcher_desktop.py
+Start Desktop App.bat
+desktop_app.py
+desktop_app.spec
+dist/
+build/
