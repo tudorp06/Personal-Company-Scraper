@@ -24,7 +24,7 @@ The app is basically intended to help people that want to enter a work sector, e
 .\run.ps1
 ```
 
-1. Open `http://localhost:5500/` in the browser.
+3. Open `http://localhost:5500/` in the browser.
 
 ---
 
